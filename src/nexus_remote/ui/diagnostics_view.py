@@ -24,7 +24,7 @@ from PySide6.QtCore import Qt
 
 from nexus_remote.diagnostics.reports import PROTOCOL_PORTS
 from nexus_remote.services import AppServices
-from nexus_remote.ui.tasks import Worker
+from nexus_remote.ui.tasks import Worker, connect_worker
 
 RESULT_COLOURS = {
     "ok": "#37c98b",
@@ -195,8 +195,7 @@ class DiagnosticsPage(QWidget):
             self.report_view.setPlainText(f"diagnostics failed: {message}\n{detail}")
 
         worker = Worker(work)
-        worker.signals.result.connect(finished)
-        worker.signals.error.connect(failed)
+        connect_worker(worker, on_result=finished, on_error=failed)
         QThreadPool.globalInstance().start(worker)
 
     def _render(self, report) -> None:

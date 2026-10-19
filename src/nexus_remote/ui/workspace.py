@@ -33,7 +33,7 @@ from nexus_remote.assistant.autocomplete import SuggestionSource, environment_fo
 from nexus_remote.connections.interfaces import ConnectionErrorKind, ProtocolError, SessionState
 from nexus_remote.connections.session import Session
 from nexus_remote.services import AppServices
-from nexus_remote.ui.tasks import Worker
+from nexus_remote.ui.tasks import Worker, connect_worker
 from nexus_remote.ui.terminal import TerminalView
 
 SESSION_COLUMNS = ["Device", "Protocol", "Endpoint", "Route", "State", "Detail"]
@@ -229,8 +229,7 @@ class WorkspacePage(QWidget):
             self._append_console(f"[connect error] {detail}\n")
 
         worker = Worker(manager.connect, session)
-        worker.signals.result.connect(finished)
-        worker.signals.error.connect(failed)
+        connect_worker(worker, on_result=finished, on_error=failed)
         QThreadPool.globalInstance().start(worker)
 
     def _on_connected(self, session: Session) -> None:
@@ -630,8 +629,7 @@ class WorkspacePage(QWidget):
             self._diagnose(detail, environment, session.protocol)
 
         worker = Worker(manager.execute, session, command, approved=approved, environment=environment)
-        worker.signals.result.connect(finished)
-        worker.signals.error.connect(failed)
+        connect_worker(worker, on_result=finished, on_error=failed)
         QThreadPool.globalInstance().start(worker)
 
     def _diagnose(self, output: str, environment: str, protocol: str) -> None:
@@ -922,9 +920,12 @@ class WorkspacePage(QWidget):
         self.transfer_progress.setValue(0)
         worker = Worker(self._transfer_worker, adapter, direction, items, remote_dir, local_override, cancel_flag)
         worker.kwargs["progress_cb"] = worker.signals.progress.emit
-        worker.signals.progress.connect(self._on_transfer_progress)
-        worker.signals.result.connect(self._on_transfer_done)
-        worker.signals.error.connect(self._on_transfer_failed)
+        connect_worker(
+            worker,
+            on_result=self._on_transfer_done,
+            on_error=self._on_transfer_failed,
+            on_progress=self._on_transfer_progress,
+        )
         QThreadPool.globalInstance().start(worker)
         self.transfer_status.setText(f"{direction} started for {len(items)} item(s)")
 
