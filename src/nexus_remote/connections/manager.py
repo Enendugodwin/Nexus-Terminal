@@ -22,6 +22,7 @@ from nexus_remote.devices.repository import DeviceRepository
 from nexus_remote.security.audit import AuditLog
 from nexus_remote.security.credentials import CredentialError, CredentialService
 from nexus_remote.security.policies import PolicyEngine, RiskLevel
+from nexus_remote.util import utcnow_iso
 
 AdapterFactory = Callable[[], ProtocolAdapter]
 
@@ -209,6 +210,43 @@ class SessionManager:
             if session.active:
                 self.disconnect(session)
 
+    def force_close(self, session: Session, *, timeout: float = 2.0) -> Session:
+        """Terminate a session even if it refuses a normal disconnect.
+
+        Adapter teardown is given a short, bounded window; if the adapter blocks
+        (a wedged transport, a client process that will not exit) the session is
+        still marked closed and the adapter abandoned rather than hanging the
+        caller. State transitions are bypassed on purpose: this is the escape
+        hatch for a session stuck in ``connecting``/``disconnecting``.
+        """
+        adapter = session._adapter
+        session._adapter = None
+        if adapter is not None:
+            _close_with_timeout(adapter.close, timeout=timeout)
+        session.state = SessionState.CLOSED
+        session.closed_at = session.closed_at or utcnow_iso()
+        session.metadata.pop("secret", None)
+        if self.audit:
+            self.audit.record(
+                "session",
+                "session.terminated",
+                severity="warning",
+                outcome="success",
+                device_id=session.device_id,
+                subject=f"{session.protocol} {session.endpoint}",
+                detail={"route": session.route.value, "forced": True},
+            )
+        return session
+
+    def terminate_all(self, *, timeout: float = 2.0) -> int:
+        """Force-terminate every session that is not already closed."""
+        terminated = 0
+        for session in list(self._sessions.values()):
+            if session.state is not SessionState.CLOSED:
+                self.force_close(session, timeout=timeout)
+                terminated += 1
+        return terminated
+
     # -- commands -----------------------------------------------------------
     def execute(
         self,
@@ -307,7 +345,9 @@ class SessionManager:
             secret = self.credentials.resolve(device.id, kind, session.username)
         except CredentialError as exc:
             raise ProtocolError(f"the credential vault is unavailable: {exc}", kind=ConnectionErrorKind.POLICY) from exc
-        if secret is None and auth == "credential_vault":
+        if secret is None and auth == "credential_vault" and session.protocol != "rdp":
+            # RDP is special: FreeRDP can prompt for the password in its own
+            # window, so a missing vault entry is not fatal there.
             raise ProtocolError(
                 f"no stored credential for {device.name}. Add one in the Security Center or "
                 "connect with an interactive prompt.",
@@ -335,6 +375,27 @@ def _route_kind(method: str) -> RouteKind:
         return RouteKind(method)
     except ValueError:
         return RouteKind.DIRECT
+
+
+def _close_with_timeout(close: Callable[[], None], *, timeout: float) -> bool:
+    """Run ``close`` in a daemon thread; return False if it did not finish.
+
+    A stuck adapter must never freeze the UI. The thread is abandoned (daemon)
+    if the timeout elapses; the process can still exit normally.
+    """
+    finished = threading.Event()
+
+    def _run() -> None:
+        try:
+            close()
+        except Exception:  # pragma: no cover - teardown must not raise
+            pass
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=_run, name="session-close", daemon=True)
+    worker.start()
+    return finished.wait(timeout)
 
 
 def risk_of(command: str, environment: str = "unknown") -> RiskLevel:

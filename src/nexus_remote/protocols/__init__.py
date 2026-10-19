@@ -10,7 +10,12 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from nexus_remote.connections.interfaces import ProtocolAdapter
-from nexus_remote.protocols.rdp import RDPAdapter, rdp_client_path
+from nexus_remote.protocols.rdp import (
+    RDPAdapter,
+    freerdp_available,
+    freerdp_candidates,
+    freerdp_client_path,
+)
 from nexus_remote.protocols.sftp import SFTPSession
 from nexus_remote.protocols.smb import SMBAdapter, smb_available
 from nexus_remote.protocols.ssh import ParamikoSSHAdapter, ShellChannel
@@ -22,7 +27,9 @@ __all__ = [
     "SMBAdapter",
     "ShellChannel",
     "adapter_factories",
-    "rdp_client_path",
+    "freerdp_available",
+    "freerdp_candidates",
+    "freerdp_client_path",
     "register_adapters",
     "smb_available",
 ]

@@ -1,14 +1,15 @@
 # Nexus Remote
 
 A Windows desktop workspace for remote access and device management: SSH/SFTP
-sessions, a real interactive terminal, an optional native RDP launch, device
+sessions, a real interactive terminal, an embedded FreeRDP desktop, device
 inventory, diagnostics and a deterministic assistant. Everything that matters
 works offline; no AI model is required to connect, diagnose or run a playbook.
 
 > **Status: early MVP (0.1.0).** SSH, SFTP and interactive terminal emulation
-> are implemented. RDP launches `mstsc.exe` with a generated profile. SMB is an
-> optional dependency and is not wired into the UI yet. Cloud discovery, NAT
-> traversal and remote agents are deliberately deferred.
+> are implemented. RDP is performed by the application itself through the
+> FreeRDP client, embedded in the workspace window (`mstsc.exe` is not used).
+> SMB is an optional dependency and is not wired into the UI yet. Cloud
+> discovery, NAT traversal and remote agents are deliberately deferred.
 
 ## Highlights
 
@@ -36,8 +37,9 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
 
 - Windows 10/11 (the UI also runs on Linux/macOS for development).
 - Python 3.11+ (developed on 3.13).
-- Optional external tools: `mstsc.exe` for RDP. SMB support is optional and not
-  yet exposed in the UI.
+- Optional external tools: the FreeRDP client (`wlfreerdp.exe`) for RDP,
+  embedded in the workspace window. SMB support is optional and not yet exposed
+  in the UI.
 
 ## Install and run
 
@@ -86,7 +88,7 @@ src/nexus_remote/
   devices/             models, repository, YAML profiles
   security/            redaction, vault, audit, known_hosts, policy
   connections/         session state machine, routing, manager
-  protocols/           SSH/SFTP, RDP launcher, optional SMB
+  protocols/           SSH/SFTP, embedded FreeRDP, optional SMB
   diagnostics/         DNS, TCP, routing, interfaces, reports
   assistant/           autocomplete, history, snippets, errors, playbooks
   ui/                  PySide6 pages, theme, terminal widget, workers
@@ -101,7 +103,7 @@ src/nexus_remote/
 
 ## Non-goals for this phase
 
-Embedded RDP rendering (FreeRDP), SMB browsing in the UI, cloud asset
+Embedded RDP rendering is done with FreeRDP; still deferred: SMB browsing in the UI, cloud asset
 discovery, NAT traversal, relay/agent deployment and any automatic execution of
 AI-proposed commands. The interfaces exist so these can be added without
 changing the security model.

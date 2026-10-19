@@ -21,7 +21,7 @@ Services (services.py)
 |                |                | errors         | policy         |
 +----------------+----------------+----------------+----------------+
         |
-protocols: SSH/SFTP (paramiko), RDP (mstsc launcher), SMB (optional)
+protocols: SSH/SFTP (paramiko), RDP (embedded FreeRDP), SMB (optional)
         |
 storage: SQLite + forward-only migrations, FTS5 when available
 ```

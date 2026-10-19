@@ -40,8 +40,8 @@ for this phase; their interfaces are reserved but not deployed.
 | Accidental destructive command | Data loss / outage | Deterministic `PolicyEngine` denies destructive patterns; state changes require confirmation; every denial is audited. |
 | Remote escape-sequence attack | UI spoofing, clipboard abuse | pyte parses bytes into a character grid; the renderer never interprets control sequences as application actions. OSC title changes only update a status label. |
 | Malicious model suggestion | Running attacker commands | AI suggestions are labelled unverified, ranked below verified/history, and never auto-executed. Execution still passes the policy gate. |
-| Command injection through device fields | Arbitrary local execution | No `shell=True` command construction from profile data. SSH uses paramiko channels; RDP writes parameters into a data file, not a command line. |
-| RDP credential exposure | Credential theft | The generated `.rdp` file contains no password; Windows prompts. It is written under the user's temp directory and never stores secret material. |
+| Command injection through device fields | Arbitrary local execution | No `shell=True` command construction from profile data. SSH uses paramiko channels; RDP builds an argv list passed to FreeRDP without a shell. |
+| RDP credential exposure | Credential theft | The password is written to the FreeRDP client's standard input, never to the command line (where any local process could read it) and never to disk. |
 | Clipboard leakage | Secret exposure | Clipboard use is explicit (copy/paste). No automatic clipboard sync from remote sessions. |
 | Local attacker as the same user | Full compromise | Out of scope for app-level controls: Windows DPAPI/ACL protects the vault and data directory. Use a locked workstation and separate accounts. |
 | Database tampering | Misleading inventory/audit | SQLite has no signatures. Restrict NTFS permissions on `%LOCALAPPDATA%\NexusRemote`; export/verify audit logs to a protected location if needed. |
@@ -54,7 +54,9 @@ for this phase; their interfaces are reserved but not deployed.
 - Protection against a compromised operating system or a malicious administrator.
 - Hiding inventory metadata from someone who can read the user's files.
 - Multi-user or server-side access control (the app is single-user desktop).
-- Embedded RDP rendering; `mstsc.exe` is trusted as an OS component.
+- Securing the remote host's RDP stack; FreeRDP is trusted as the client and
+  renders inside the workspace window. Certificate verification is on by default
+  and ignoring it is an explicit per-session opt-in.
 
 ## Residual risks
 

@@ -4,8 +4,9 @@
 
 - Windows 10/11, 64-bit.
 - Python 3.11+ for a source install. The packaged bundle includes its own runtime.
-- `mstsc.exe` for RDP (present on Windows Pro/Enterprise; Home may lack the
-  server component but the client is usually available).
+- FreeRDP for RDP (`winget install FreeRDP.FreeRDP`, `choco install freerdp`, or
+  place `wlfreerdp.exe` on `PATH`). The app embeds the FreeRDP window in the
+  workspace; it does not launch `mstsc.exe`.
 - No administrator rights are required. The app is a per-user desktop tool and
   does not install a service.
 
@@ -109,7 +110,7 @@ schema version.
 | `no usable OS credential backend` | The Windows Credential Manager is unavailable (service disabled, locked-down session). Run as the interactive user; do not use a service account. |
 | Qt platform plugin error | The bundle is incomplete or `QT_PLUGIN_PATH` points elsewhere. Rebuild with the provided spec; do not mix a system Qt with the bundle. |
 | `pyte` import error | Source install is missing dependencies: `pip install -e .`. |
-| RDP client not found | `mstsc.exe` is missing or blocked by policy. Use SSH/SFTP or install the Remote Desktop client. |
+| RDP client not found | FreeRDP is not installed. Run `winget install FreeRDP.FreeRDP` (or `choco install freerdp`) and reopen the app, or add `wlfreerdp.exe` to `PATH`. |
 | Host key refused | Unknown or changed key. Verify the fingerprint with the device owner, then trust it in the prompt. |
 | Database is locked | Another instance is running, or an antivirus scanner holds the file. Close other instances and retry. |
 | SmartScreen warns | Expected for unsigned builds. Sign the executable or allow it explicitly. |

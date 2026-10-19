@@ -1,12 +1,18 @@
 """RDP adapter.
 
-The first release launches the native Windows Remote Desktop client
-(``mstsc``) with a generated ``.rdp`` profile, which keeps the remote-access
-inventory in Nexus Remote while leaving the protocol to Microsoft's client.
+RDP is performed by the application itself: it launches the FreeRDP client
+(``wlfreerdp``/``xfreerdp``) and embeds its window inside the Nexus Remote
+workspace by passing the Qt widget's native window handle as
+``/parent-window``. Microsoft's ``mstsc.exe`` is not used.
 
-Credentials are never written into the ``.rdp`` file: the profile pre-fills the
-username and Windows prompts for the secret. Embedded/FreeRDP rendering and
-DPAPI-encrypted credential injection are later-phase work.
+Security notes
+--------------
+* The password is never placed on the command line (where any local process
+  could read it): it is written to the client's stdin with ``/from-stdin``.
+* Certificate verification is left on by default. ``cert_ignore`` is an
+  explicit, per-session opt-in for lab hosts with self-signed certificates.
+* The child process is tracked and terminated on ``close()`` so a wedged client
+  cannot keep a session alive.
 """
 
 from __future__ import annotations
@@ -14,7 +20,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -26,15 +31,58 @@ from nexus_remote.connections.interfaces import (
     ProtocolError,
 )
 
+#: Client binaries, most preferred first. On Windows the FreeRDP GUI client is
+#: ``wlfreerdp.exe``; ``xfreerdp``/``sdl-freerdp`` are used elsewhere.
+_CLIENT_NAMES = (
+    "wlfreerdp.exe",
+    "wlfreerdp",
+    "sdl-freerdp.exe",
+    "sdl-freerdp",
+    "xfreerdp.exe",
+    "xfreerdp",
+)
 
-def rdp_client_path() -> str | None:
-    """Locate ``mstsc.exe`` (None on non-Windows hosts)."""
-    if os.name != "nt":
-        return None
-    candidate = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "mstsc.exe"
-    if candidate.exists():
-        return str(candidate)
-    return shutil.which("mstsc")
+#: Directories that commonly hold a FreeRDP install on Windows.
+_WINDOWS_CLIENT_DIRS = (
+    Path(r"C:\Program Files\FreeRDP"),
+    Path(r"C:\Program Files (x86)\FreeRDP"),
+    Path(r"C:\ProgramData\chocolatey\bin"),
+    Path(r"C:\ProgramData\chocolatey\lib\freerdp\tools"),
+)
+
+_INSTALL_HINT = (
+    "FreeRDP was not found. Nexus Remote performs RDP itself with FreeRDP "
+    "(the mstsc client is not used). Install it with 'winget install FreeRDP.FreeRDP' "
+    "or 'choco install freerdp', or place wlfreerdp.exe on PATH."
+)
+
+
+def freerdp_candidates() -> list[str]:
+    """Return every FreeRDP client binary that can be found."""
+    found: list[str] = []
+    for name in _CLIENT_NAMES:
+        which = shutil.which(name)
+        if which and which not in found:
+            found.append(which)
+    if os.name == "nt":
+        for directory in _WINDOWS_CLIENT_DIRS:
+            if not directory.exists():
+                continue
+            for name in _CLIENT_NAMES:
+                candidate = directory / name
+                if candidate.exists() and str(candidate) not in found:
+                    found.append(str(candidate))
+    return found
+
+
+def freerdp_client_path() -> str | None:
+    """Locate a usable FreeRDP client, or ``None`` when it is not installed."""
+    candidates = freerdp_candidates()
+    return candidates[0] if candidates else None
+
+
+def freerdp_available() -> bool:
+    return freerdp_client_path() is not None
 
 
 @dataclass
@@ -47,93 +95,126 @@ class RDPOptions:
     redirect_drives: bool = False
     redirect_printers: bool = False
     nla: bool = True
+    cert_ignore: bool = False
     gateway_hostname: str | None = None
+    parent_window: int | None = None
+    client: str | None = None
 
 
 class RDPAdapter(ProtocolAdapter):
     protocol = "rdp"
 
-    def __init__(self, launcher: object | None = None) -> None:
+    def __init__(self, launcher: object | None = None, client_path: str | None = None) -> None:
         super().__init__()
         self._process: subprocess.Popen[bytes] | None = None
         self._launcher = launcher or subprocess.Popen
-        self.profile_path: Path | None = None
+        self._client_path = client_path
 
+    # -- lifecycle ----------------------------------------------------------
     def connect(self, target: ConnectionTarget) -> ConnectResult:
-        client = rdp_client_path()
+        client = self._client_path or freerdp_client_path()
         if client is None:
             raise ProtocolError(
-                "the Windows Remote Desktop client (mstsc) was not found",
+                "FreeRDP is required to open an RDP session",
                 kind=ConnectionErrorKind.POLICY,
-                detail="RDP requires Windows 10/11 with the Remote Desktop client installed.",
+                detail=_INSTALL_HINT,
             )
-        options = RDPOptions(**{**asdict(RDPOptions()), **_known_options(target.options)})
+        options = RDPOptions(
+            **{**asdict(RDPOptions()), **_known_options(target.options), "client": client}
+        )
         if target.options.get("gateway"):
             options.gateway_hostname = str(target.options["gateway"])
-        profile = self.build_rdp_file(target, options)
-        self.profile_path = profile
+        command = self.build_command(target, options)
         try:
-            self._process = self._launcher([client, str(profile)])  # type: ignore[operator]
+            self._process = self._launcher(  # type: ignore[operator]
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         except OSError as exc:
             raise ProtocolError(
-                f"could not start the RDP client: {exc}",
+                f"could not start the FreeRDP client: {exc}",
                 kind=ConnectionErrorKind.PROTOCOL,
                 detail=str(exc),
             ) from exc
+        # The password reaches the client on stdin, never through argv.
+        if target.secret and self._process is not None and self._process.stdin is not None:
+            try:
+                self._process.stdin.write((target.secret + "\n").encode("utf-8"))
+                self._process.stdin.flush()
+                self._process.stdin.close()
+            except (OSError, ValueError):  # pragma: no cover - client already gone
+                pass
         self._connected = True
+        embedded = options.parent_window is not None
         return ConnectResult(
             ok=True,
-            message=f"launched the Windows RDP client for {target.endpoint()}",
-            auth_method="windows-credential-prompt",
-            metadata={"rdp_profile": str(profile), "username": target.username},
+            message=(
+                f"FreeRDP session started for {target.endpoint()}"
+                + (" (embedded)" if embedded else "")
+            ),
+            auth_method="vault-credential" if target.secret else "interactive-prompt",
+            metadata={
+                "client": client,
+                "embedded": embedded,
+                "parent_window": options.parent_window,
+            },
         )
 
-    def build_rdp_file(self, target: ConnectionTarget, options: RDPOptions | None = None) -> Path:
-        """Write an ``.rdp`` profile without any secret material."""
-        settings = options or RDPOptions()
-        port = int(target.port or 3389)
-        address = target.host if port == 3389 else f"{target.host}:{port}"
-        lines = [
-            f"full address:s:{address}",
-            f"username:s:{target.username}" if target.username else "",
-            "prompt for credentials:i:1",
-            f"screen mode id:i:{2 if settings.fullscreen else 1}",
-            f"desktopwidth:i:{settings.width}",
-            f"desktopheight:i:{settings.height}",
-            f"session bpp:i:{settings.color_depth}",
-            f"redirectclipboard:i:{1 if settings.clipboard else 0}",
-            f"redirectprinters:i:{1 if settings.redirect_printers else 0}",
-            f"drivestoredirect:s:{'*' if settings.redirect_drives else ''}",
-            f"enablecredsspsupport:i:{1 if settings.nla else 0}",
-            "authentication level:i:2",
-            "audiomode:i:0",
-            "audiocapturemode:i:0",
-            "camerastoredirect:s:",
-        ]
-        if settings.gateway_hostname:
-            lines.extend(
-                [
-                    f"gatewayhostname:s:{settings.gateway_hostname}",
-                    "gatewayusagemethod:i:2",
-                    "gatewayprofileusagemethod:i:1",
-                ]
-            )
-        directory = Path(tempfile.gettempdir()) / "nexus-remote" / "rdp"
-        directory.mkdir(parents=True, exist_ok=True)
-        safe_name = "".join(char if char.isalnum() or char in "-_." else "_" for char in target.host)
-        profile = directory / f"{safe_name}-{port}.rdp"
-        profile.write_text("\r\n".join(line for line in lines if line) + "\r\n", encoding="utf-8")
-        return profile
-
     def close(self) -> None:
-        # mstsc owns the session; we only control the process we started.
-        if self._process is not None and self._process.poll() is None:
-            try:
-                self._process.terminate()
-            except Exception:  # pragma: no cover - defensive
-                pass
+        """Stop the client; escalate to kill if it does not exit promptly."""
+        process = self._process
         self._process = None
         self._connected = False
+        if process is None or process.poll() is not None:
+            return
+        try:
+            process.terminate()
+        except Exception:  # pragma: no cover - defensive
+            pass
+        try:
+            process.wait(timeout=3)
+        except Exception:  # pragma: no cover - client ignored terminate
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    # -- command construction ----------------------------------------------
+    def build_command(self, target: ConnectionTarget, options: RDPOptions | None = None) -> list[str]:
+        """Build the FreeRDP argv. The password is deliberately absent."""
+        settings = options or RDPOptions()
+        client = settings.client or self._client_path or freerdp_client_path() or "wlfreerdp"
+        port = int(target.port or 3389)
+        address = target.host if port == 3389 else f"{target.host}:{port}"
+        command = [client, f"/v:{address}"]
+        if target.username:
+            command.append(f"/u:{target.username}")
+        if target.secret:
+            # Read the password from stdin so it never appears in the process list.
+            command.append("/from-stdin")
+        command.append(f"/w:{settings.width}")
+        command.append(f"/h:{settings.height}")
+        command.append(f"/bpp:{settings.color_depth}")
+        if settings.fullscreen:
+            command.append("/f")
+        if settings.clipboard:
+            command.append("+clipboard")
+        if settings.redirect_drives:
+            command.append("/drive:home,$HOME")
+        if settings.redirect_printers:
+            command.append("/printer")
+        if settings.nla:
+            command.append("/sec:nla")
+        if settings.gateway_hostname:
+            command.append(f"/gateway:{settings.gateway_hostname}")
+        if settings.cert_ignore:
+            command.append("/cert:ignore")
+        if settings.parent_window is not None:
+            command.append(f"/parent-window:{int(settings.parent_window)}")
+        command.append("/dynamic-resolution")
+        return command
 
 
 def _known_options(options: dict[str, object]) -> dict[str, object]:

@@ -85,6 +85,14 @@ class WorkspacePage(QWidget):
         self.disconnect_button.clicked.connect(self.disconnect_selected)
         self.reconnect_button = QPushButton("Reconnect")
         self.reconnect_button.clicked.connect(self.reconnect_selected)
+        self.force_button = QPushButton("Force kill")
+        self.force_button.setObjectName("Danger")
+        self.force_button.setToolTip("Force-terminate the selected session even if it refuses a normal disconnect.")
+        self.force_button.clicked.connect(self.force_kill_selected)
+        self.kill_all_button = QPushButton("Kill all sessions")
+        self.kill_all_button.setObjectName("Danger")
+        self.kill_all_button.setToolTip("Force-terminate every open session at once.")
+        self.kill_all_button.clicked.connect(self.kill_all_sessions)
 
         form = QFormLayout()
         form.addRow("Device", self.device_combo)
@@ -97,6 +105,8 @@ class WorkspacePage(QWidget):
         buttons.addWidget(self.connect_button)
         buttons.addWidget(self.disconnect_button)
         buttons.addWidget(self.reconnect_button)
+        buttons.addWidget(self.force_button)
+        buttons.addWidget(self.kill_all_button)
         buttons.addStretch(1)
 
         self.route_hint = QLabel("")
@@ -368,6 +378,38 @@ class WorkspacePage(QWidget):
             return
         self.services.sessions.disconnect(session)
         self.connect_current()
+
+    def force_kill_selected(self) -> None:
+        """Terminate the selected session even if a normal disconnect hangs."""
+        session = self._selected_session()
+        if session is None:
+            QMessageBox.information(self, "No session", "Select a session to force-terminate.")
+            return
+        self._force_close(session)
+        self.status_message.emit(f"force-terminated {session.endpoint}")
+
+    def kill_all_sessions(self) -> None:
+        """Kill every session, including ones stuck mid-connect/disconnect."""
+        count = self.services.sessions.terminate_all()
+        if self.terminal_view.is_attached():
+            self.terminal_view.detach()
+        self._stop_rdp_embedded()
+        for session in self.services.sessions.sessions():
+            self._refresh_session_row(session)
+        self._refresh_session_choices()
+        self.status_message.emit(
+            f"terminated {count} session{'s' if count != 1 else ''}" if count else "no active sessions"
+        )
+
+    def _force_close(self, session: Session) -> None:
+        if self.terminal_view.session_id == session.id:
+            self.terminal_view.detach()
+        if session.protocol == "rdp":
+            self._stop_rdp_embedded()
+        else:
+            self.services.sessions.force_close(session)
+            self._refresh_session_row(session)
+        self._refresh_session_choices()
 
     # ------------------------------------------------------------------ terminal
     def _build_terminal_tab(self) -> QWidget:
@@ -989,24 +1031,56 @@ class WorkspacePage(QWidget):
         self.rdp_clipboard = QCheckBox("Share clipboard")
         self.rdp_clipboard.setChecked(True)
         self.rdp_drives = QCheckBox("Redirect local drives")
+        self.rdp_cert_ignore = QCheckBox("Ignore certificate")
         self.rdp_username = QLineEdit()
-        self.rdp_username.setPlaceholderText("pre-filled username (password is never written to the profile)")
+        self.rdp_username.setPlaceholderText("pre-filled username (the password is sent on stdin, never to disk)")
 
-        launch = QPushButton("Launch remote desktop")
-        launch.setObjectName("Primary")
-        launch.clicked.connect(self.launch_rdp)
+        self.rdp_launch_button = QPushButton("Open remote desktop")
+        self.rdp_launch_button.setObjectName("Primary")
+        self.rdp_launch_button.clicked.connect(self.launch_rdp)
+        self.rdp_stop_button = QPushButton("Stop")
+        self.rdp_stop_button.setObjectName("Danger")
+        self.rdp_stop_button.clicked.connect(self.stop_rdp)
+
+        # A native child window that FreeRDP is told to render into via
+        # /parent-window. WA_NativeWindow forces a real HWND for winId().
+        self.rdp_embed = QWidget()
+        self.rdp_embed.setObjectName("RdpEmbed")
+        self.rdp_embed.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
+        self.rdp_embed.setMinimumHeight(320)
+        self.rdp_placeholder = QLabel(
+            "The desktop session renders here. Nexus Remote drives FreeRDP directly - "
+            "no external Remote Desktop window is opened."
+        )
+        self.rdp_placeholder.setObjectName("Faint")
+        self.rdp_placeholder.setWordWrap(True)
+        self.rdp_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder_layout = QVBoxLayout(self.rdp_embed)
+        placeholder_layout.setContentsMargins(12, 12, 12, 12)
+        placeholder_layout.addWidget(self.rdp_placeholder)
+
+        self.rdp_status = QLabel("No embedded session.")
+        self.rdp_status.setObjectName("Faint")
+        self.rdp_status.setWordWrap(True)
 
         form = QFormLayout()
         form.addRow("Device", self.rdp_device_combo)
         form.addRow("Resolution", _row(self.rdp_width, self.rdp_height))
-        form.addRow("Options", _row(self.rdp_fullscreen, self.rdp_clipboard, self.rdp_drives))
+        form.addRow(
+            "Options",
+            _row(self.rdp_fullscreen, self.rdp_clipboard, self.rdp_drives, self.rdp_cert_ignore),
+        )
         form.addRow("Username", self.rdp_username)
 
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.rdp_launch_button)
+        buttons.addWidget(self.rdp_stop_button)
+        buttons.addStretch(1)
+
         note = QLabel(
-            "Nexus Remote launches the native Windows Remote Desktop client with a generated .rdp profile "
-            "and keeps the device inventory, routing and audit trail here. The profile contains no secret: "
-            "Windows prompts for the password. Embedding the session inside this window (FreeRDP) and "
-            "DPAPI-encrypted credential injection are later phases."
+            "The session is performed by Nexus Remote itself using the FreeRDP client, embedded in this "
+            "window. FreeRDP must be installed (winget install FreeRDP.FreeRDP, or choco install freerdp). "
+            "The password is passed to the client on standard input, never on the command line or to disk."
         )
         note.setObjectName("Faint")
         note.setWordWrap(True)
@@ -1014,9 +1088,10 @@ class WorkspacePage(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.addLayout(form)
-        layout.addWidget(launch)
+        layout.addLayout(buttons)
+        layout.addWidget(self.rdp_embed, 1)
+        layout.addWidget(self.rdp_status)
         layout.addWidget(note)
-        layout.addStretch(1)
         return page
 
     def refresh_rdp_devices(self) -> None:
@@ -1030,12 +1105,14 @@ class WorkspacePage(QWidget):
         if index >= 0:
             self.rdp_device_combo.setCurrentIndex(index)
 
-    def launch_rdp(self) -> None:  # pragma: no cover - launches an external client
+    def launch_rdp(self) -> None:
         device_id = self.rdp_device_combo.currentData()
         device = self.services.devices.get(device_id) if device_id else None
         if device is None:
             QMessageBox.information(self, "No device", "Select a device.")
             return
+        # The GUI owns the HWND; FreeRDP renders its window inside this widget.
+        parent_window = int(self.rdp_embed.winId())
         try:
             session = self.services.sessions.open(
                 device,
@@ -1047,18 +1124,42 @@ class WorkspacePage(QWidget):
                     "fullscreen": self.rdp_fullscreen.isChecked(),
                     "clipboard": self.rdp_clipboard.isChecked(),
                     "redirect_drives": self.rdp_drives.isChecked(),
+                    "cert_ignore": self.rdp_cert_ignore.isChecked(),
                     "gateway": device.routing.gateway,
+                    "parent_window": parent_window,
                 },
             )
             self._append_session(session)
             result = self.services.sessions.connect(session)
             self._refresh_session_row(result)
             if result.state is SessionState.CONNECTED:
-                self.transfer_status.setText(f"RDP client launched for {device.name}")
+                self.rdp_placeholder.hide()
+                self.rdp_status.setText(f"Embedded RDP session to {device.name} ({session.endpoint}).")
             else:
-                QMessageBox.warning(self, "RDP", result.error or "the RDP client could not be started")
+                self.rdp_status.setText(result.error or "the FreeRDP client could not be started")
+                QMessageBox.warning(self, "RDP", result.error or "the FreeRDP client could not be started")
         except ProtocolError as exc:
             QMessageBox.warning(self, "RDP", str(exc))
+
+    def stop_rdp(self) -> None:
+        """Force-stop any embedded desktop session (also used by Kill all)."""
+        stopped = self._stop_rdp_embedded()
+        self.status_message.emit(
+            f"stopped {stopped} remote desktop session{'s' if stopped != 1 else ''}"
+            if stopped
+            else "no remote desktop session to stop"
+        )
+
+    def _stop_rdp_embedded(self) -> int:
+        stopped = 0
+        for session in self.services.sessions.sessions():
+            if session.protocol == "rdp" and session.state is not SessionState.CLOSED:
+                self.services.sessions.force_close(session)
+                self._refresh_session_row(session)
+                stopped += 1
+        self.rdp_placeholder.show()
+        self.rdp_status.setText("No embedded session.")
+        return stopped
 
 
 def _row(*widgets: QWidget) -> QWidget:
