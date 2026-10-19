@@ -5,11 +5,14 @@
 - Windows 10/11, 64-bit.
 - Python 3.11+ for a source install. The packaged bundle includes its own runtime.
 - FreeRDP for RDP (`winget install FreeRDP.FreeRDP`, `choco install freerdp`, or
-  place `wlfreerdp.exe`/`sdl-freerdp.exe` on `PATH`). The app embeds the FreeRDP
-  window in the workspace; it does not launch `mstsc.exe`. Windows has no stable
-  FreeRDP binary release, so `packaging/install_freerdp.ps1` fetches the latest
-  official win64 nightly into `%LOCALAPPDATA%\NexusRemote\tools\freerdp`, which
-  the app scans first.
+  place `wlfreerdp.exe`/`sdl-freerdp.exe` on `PATH`). The app runs the FreeRDP
+  client itself and re-parents its native window into the workspace at the Win32
+  level (the SDL client ignores `/parent-window`); it never launches `mstsc.exe`.
+  Windows has no stable FreeRDP binary release, so
+  `packaging/install_freerdp.ps1` fetches the latest official win64 nightly into
+  `%LOCALAPPDATA%\NexusRemote\tools\freerdp`, which the app scans first.
+  TLS certificates use trust-on-first-use (`/cert:tofu`) by default; "Ignore
+  certificate" is an explicit per-session opt-out.
 - No administrator rights are required. The app is a per-user desktop tool and
   does not install a service.
 

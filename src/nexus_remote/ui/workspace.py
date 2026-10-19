@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThreadPool, Signal
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -63,6 +63,47 @@ class WorkspacePage(QWidget):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.addWidget(self.tabs)
         self.refresh_devices()
+
+        # A dead FreeRDP process must not leave a "connected" row behind.
+        self._rdp_reaper = QTimer(self)
+        self._rdp_reaper.setInterval(2000)
+        self._rdp_reaper.timeout.connect(self._reap_rdp_sessions)
+        self._rdp_reaper.start()
+
+    def _reap_rdp_sessions(self) -> None:
+        for session in self.services.sessions.sessions():
+            adapter = session.adapter
+            if session.protocol != "rdp" or adapter is None:
+                continue
+            if session.state is SessionState.CLOSED:
+                continue
+            error = getattr(adapter, "last_error", "")
+            if error:
+                session.error = error
+                self.services.sessions.force_close(session)
+                self._refresh_session_row(session)
+                self._refresh_session_choices()
+                self.rdp_placeholder.show()
+                self.rdp_status.setText(f"RDP failed: {error}.")
+                continue
+            if getattr(adapter, "exited", False):
+                session.error = "the RDP client exited"
+                self.services.sessions.force_close(session)
+                self._refresh_session_row(session)
+                self._refresh_session_choices()
+                self.rdp_placeholder.show()
+                self.rdp_status.setText(
+                    f"The desktop session to {session.endpoint} ended (the client exited)."
+                )
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        for session in self.services.sessions.sessions():
+            adapter = session.adapter
+            if session.protocol == "rdp" and adapter is not None:
+                resize = getattr(adapter, "resize_embedded", None)
+                if callable(resize):
+                    resize()
 
     # ------------------------------------------------------------------ sessions
     def _build_sessions_tab(self) -> QWidget:
@@ -1034,6 +1075,9 @@ class WorkspacePage(QWidget):
         self.rdp_cert_ignore = QCheckBox("Ignore certificate")
         self.rdp_username = QLineEdit()
         self.rdp_username.setPlaceholderText("pre-filled username (the password is sent on stdin, never to disk)")
+        self.rdp_password = QLineEdit()
+        self.rdp_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.rdp_password.setPlaceholderText("blank = use the stored credential (or the client asks)")
 
         self.rdp_launch_button = QPushButton("Open remote desktop")
         self.rdp_launch_button.setObjectName("Primary")
@@ -1071,6 +1115,7 @@ class WorkspacePage(QWidget):
             _row(self.rdp_fullscreen, self.rdp_clipboard, self.rdp_drives, self.rdp_cert_ignore),
         )
         form.addRow("Username", self.rdp_username)
+        form.addRow("Password", self.rdp_password)
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.rdp_launch_button)
@@ -1079,8 +1124,10 @@ class WorkspacePage(QWidget):
 
         note = QLabel(
             "The session is performed by Nexus Remote itself using the FreeRDP client, embedded in this "
-            "window. FreeRDP must be installed (winget install FreeRDP.FreeRDP, or choco install freerdp). "
-            "The password is passed to the client on standard input, never on the command line or to disk."
+            "window (mstsc.exe is never used). FreeRDP must be installed: run packaging/install_freerdp.ps1 "
+            "or put wlfreerdp.exe/sdl-freerdp.exe on PATH. The password is passed to the client on standard "
+            "input, never on the command line or to disk. Certificates are trusted on first use unless "
+            "'Ignore certificate' is ticked."
         )
         note.setObjectName("Faint")
         note.setWordWrap(True)
@@ -1111,13 +1158,20 @@ class WorkspacePage(QWidget):
         if device is None:
             QMessageBox.information(self, "No device", "Select a device.")
             return
-        # The GUI owns the HWND; FreeRDP renders its window inside this widget.
+        # The GUI owns the HWND; the client window is re-parented into it.
         parent_window = int(self.rdp_embed.winId())
+        username = self.rdp_username.text().strip() or None
+        secret = self.rdp_password.text() or None
+        stored_password = any(
+            ref.kind == "password" for ref in self.services.credentials.references(device.id)
+        )
+        needs_prompt = secret is None and not stored_password
         try:
             session = self.services.sessions.open(
                 device,
                 "rdp",
-                username=self.rdp_username.text().strip() or None,
+                username=username,
+                secret=secret,
                 options={
                     "width": self.rdp_width.value(),
                     "height": self.rdp_height.value(),
@@ -1129,17 +1183,41 @@ class WorkspacePage(QWidget):
                     "parent_window": parent_window,
                 },
             )
+            self.rdp_password.clear()
             self._append_session(session)
             result = self.services.sessions.connect(session)
             self._refresh_session_row(result)
             if result.state is SessionState.CONNECTED:
                 self.rdp_placeholder.hide()
-                self.rdp_status.setText(f"Embedded RDP session to {device.name} ({session.endpoint}).")
+                self.rdp_status.setText(
+                    f"Starting the desktop session to {device.name} ({session.endpoint}) ..."
+                )
+                if needs_prompt:
+                    self.rdp_status.setText(
+                        f"Starting the desktop session to {device.name} ({session.endpoint}) ... "
+                        "No password was entered or saved, so FreeRDP may open its own sign-in window."
+                    )
+                # The client window appears asynchronously; report the outcome.
+                QTimer.singleShot(2500, lambda: self._report_rdp_embed(session))
             else:
                 self.rdp_status.setText(result.error or "the FreeRDP client could not be started")
                 QMessageBox.warning(self, "RDP", result.error or "the FreeRDP client could not be started")
         except ProtocolError as exc:
+            self.rdp_password.clear()
             QMessageBox.warning(self, "RDP", str(exc))
+
+    def _report_rdp_embed(self, session: Session) -> None:
+        adapter = session.adapter
+        if adapter is None or session.state is not SessionState.CONNECTED:
+            return
+        window = getattr(adapter, "embedded_window", 0)
+        error = getattr(adapter, "embed_error", "")
+        if window:
+            self.rdp_status.setText(
+                f"Desktop session to {session.endpoint} is running inside this window."
+            )
+        elif error:
+            self.rdp_status.setText(f"{error}; the session may be in its own window.")
 
     def stop_rdp(self) -> None:
         """Force-stop any embedded desktop session (also used by Kill all)."""
