@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-remote"
+version = "0.1.0"
+description = "Nexus Remote - universal remote access and device management workspace"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dependencies = [
+    "PySide6>=6.7",
+    "paramiko>=3.4",
+    "keyring>=25.0",
+    "PyYAML>=6.0",
+    "pyte>=0.8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+build = [
+    "pyinstaller>=6.0",
+]
+smb = [
+    "smbprotocol>=1.13",
+]
+
+[project.scripts]
+nexus-remote = "nexus_remote.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nexus_remote = ["storage/migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

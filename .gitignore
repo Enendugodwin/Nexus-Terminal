@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Local application data (never commit)
+data/
+logs/
+*.db
+*.db-wal
+*.db-shm
+*.log
+known_hosts
+exports/
+
+# Secrets / local overrides
+.env
+*.local.toml
+*.pem
+*.key
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
