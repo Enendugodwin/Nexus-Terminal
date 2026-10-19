@@ -254,7 +254,11 @@ class WorkspacePage(QWidget):
         self._refresh_session_choices()
 
     def _prompt_host_key(self, device, session: Session) -> None:
-        pending = [entry for entry in self.services.host_keys.pending() if entry["host"] == device.hostname]
+        pending = [
+            entry
+            for entry in self.services.host_keys.pending()
+            if entry["host"] == device.hostname or entry["host"].startswith(f"[{device.hostname}]:")
+        ]
         if not pending:
             QMessageBox.warning(
                 self,
