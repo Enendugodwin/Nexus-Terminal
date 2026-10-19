@@ -37,9 +37,10 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
 
 - Windows 10/11 (the UI also runs on Linux/macOS for development).
 - Python 3.11+ (developed on 3.13).
-- Optional external tools: the FreeRDP client (`wlfreerdp.exe`) for RDP,
-  embedded in the workspace window. SMB support is optional and not yet exposed
-  in the UI.
+- Optional external tools: the FreeRDP client (`wlfreerdp.exe`/`sdl-freerdp.exe`)
+  for RDP, embedded in the workspace window. `packaging/install_freerdp.ps1`
+  fetches the official Windows nightly into the per-user tools directory. SMB
+  support is optional and not yet exposed in the UI.
 
 ## Install and run
 

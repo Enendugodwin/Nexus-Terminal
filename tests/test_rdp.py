@@ -78,6 +78,18 @@ def test_client_is_freerdp_not_mstsc():
         assert "mstsc" not in candidate.lower()
 
 
+def test_per_user_tools_directory_is_searched(monkeypatch, tmp_path):
+    managed = tmp_path / "freerdp"
+    managed.mkdir()
+    client = managed / "sdl-freerdp.exe"
+    client.write_bytes(b"MZ")
+    monkeypatch.setattr(rdp, "managed_client_dir", lambda: managed)
+    monkeypatch.setattr(rdp, "search_dirs", lambda: [managed])
+    candidates = freerdp_candidates()
+    assert str(client) in candidates
+    assert rdp.freerdp_client_path() == str(client)
+
+
 def test_password_goes_to_stdin_and_never_to_argv(monkeypatch):
     process = FakeProcess()
     launcher = FakeLauncher(process)

@@ -50,10 +50,30 @@ _WINDOWS_CLIENT_DIRS = (
     Path(r"C:\ProgramData\chocolatey\lib\freerdp\tools"),
 )
 
+
+def managed_client_dir() -> Path:
+    """Per-user directory where Nexus Remote keeps its own FreeRDP client.
+
+    Installing here needs no administrator rights and keeps the client
+    discoverable even when it is not on ``PATH``.
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
+    return Path(base) / "NexusRemote" / "tools" / "freerdp"
+
+
+def search_dirs() -> list[Path]:
+    """Every directory scanned for a FreeRDP client, managed dir first."""
+    directories = [managed_client_dir()]
+    if os.name == "nt":
+        directories.extend(_WINDOWS_CLIENT_DIRS)
+    return [directory for directory in directories if directory.exists()]
+
 _INSTALL_HINT = (
     "FreeRDP was not found. Nexus Remote performs RDP itself with FreeRDP "
     "(the mstsc client is not used). Install it with 'winget install FreeRDP.FreeRDP' "
-    "or 'choco install freerdp', or place wlfreerdp.exe on PATH."
+    "or 'choco install freerdp', run 'packaging/install_freerdp.ps1' to fetch the "
+    "official Windows nightly into the per-user tools directory, or place "
+    "wlfreerdp.exe/sdl-freerdp.exe on PATH."
 )
 
 
@@ -64,14 +84,11 @@ def freerdp_candidates() -> list[str]:
         which = shutil.which(name)
         if which and which not in found:
             found.append(which)
-    if os.name == "nt":
-        for directory in _WINDOWS_CLIENT_DIRS:
-            if not directory.exists():
-                continue
-            for name in _CLIENT_NAMES:
-                candidate = directory / name
-                if candidate.exists() and str(candidate) not in found:
-                    found.append(str(candidate))
+    for directory in search_dirs():
+        for name in _CLIENT_NAMES:
+            candidate = directory / name
+            if candidate.exists() and str(candidate) not in found:
+                found.append(str(candidate))
     return found
 
 
@@ -202,7 +219,7 @@ class RDPAdapter(ProtocolAdapter):
         if settings.clipboard:
             command.append("+clipboard")
         if settings.redirect_drives:
-            command.append("/drive:home,$HOME")
+            command.append(f"/drive:home,{Path.home()}")
         if settings.redirect_printers:
             command.append("/printer")
         if settings.nla:
