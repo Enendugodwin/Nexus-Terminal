@@ -32,19 +32,51 @@ from nexus_remote.services import AppServices
 
 
 class AssistantPanel(QWidget):
-    """Deterministic assistance: suggestions, history, error rules, playbooks."""
+    """Deterministic assistance: suggestions, history, error rules, playbooks.
 
-    def __init__(self, services: AppServices, parent: QWidget | None = None) -> None:
+    The same widget is used as a full page and as the compact side panel that
+    sits beside the open terminal. ``compact`` switches the inner splitters to
+    a vertical layout and trims secondary columns so it stays readable at
+    roughly one third of the window width.
+    """
+
+    def __init__(
+        self,
+        services: AppServices,
+        parent: QWidget | None = None,
+        *,
+        compact: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.services = services
+        self.compact = compact
+        if compact:
+            self.setMinimumWidth(300)
+
+        title = QLabel("Assistant")
+        title.setObjectName("CardTitle")
+        self.context_label = QLabel("No terminal attached")
+        self.context_label.setObjectName("Faint")
+        self.context_label.setWordWrap(True)
+
+        header = QVBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(1)
+        header.addWidget(title)
+        header.addWidget(self.context_label)
+
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
         self.tabs.addTab(self._build_commands_tab(), "Commands")
         self.tabs.addTab(self._build_history_tab(), "History")
         self.tabs.addTab(self._build_errors_tab(), "Errors & playbooks")
         self.tabs.addTab(self._build_ai_tab(), "Optional AI")
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.addWidget(self.tabs)
+        layout.setContentsMargins(*((8, 6, 8, 6) if compact else (12, 10, 12, 10)))
+        layout.setSpacing(4)
+        layout.addLayout(header)
+        layout.addWidget(self.tabs, 1)
         self.refresh()
 
     # -- commands -----------------------------------------------------------
@@ -104,9 +136,13 @@ class AssistantPanel(QWidget):
         delete_snippet.clicked.connect(self.delete_snippet)
         right_layout.addWidget(delete_snippet)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter = QSplitter(
+            Qt.Orientation.Vertical if self.compact else Qt.Orientation.Horizontal
+        )
         splitter.addWidget(left)
         splitter.addWidget(right)
+        if self.compact:
+            splitter.setSizes([420, 180])
 
         note = QLabel(
             "Suggestions are environment-specific: a Cisco command is never offered for bash. "
@@ -114,6 +150,7 @@ class AssistantPanel(QWidget):
         )
         note.setObjectName("Faint")
         note.setWordWrap(True)
+        note.setVisible(not self.compact)
 
         layout = QVBoxLayout(page)
         layout.addWidget(splitter, 1)
@@ -177,6 +214,10 @@ class AssistantPanel(QWidget):
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.history_table.setAlternatingRowColors(True)
+        if self.compact:
+            # Time, command and status are the useful columns at panel width.
+            self.history_table.setColumnHidden(2, True)
+            self.history_table.setColumnHidden(4, True)
 
         controls = QHBoxLayout()
         controls.addWidget(self.history_filter, 1)
@@ -274,18 +315,25 @@ class AssistantPanel(QWidget):
         right_layout.addWidget(self.playbook_list)
         right_layout.addWidget(self.playbook_view, 1)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter = QSplitter(
+            Qt.Orientation.Vertical if self.compact else Qt.Orientation.Horizontal
+        )
         splitter.addWidget(left)
         splitter.addWidget(right)
+        if self.compact:
+            splitter.setSizes([360, 220])
+
+        note = QLabel(
+            "Rules are deterministic and offline. Output from remote systems is never interpreted as "
+            "instructions, and no proposed command runs without your explicit approval."
+        )
+        note.setObjectName("Faint")
+        note.setWordWrap(True)
+        note.setVisible(not self.compact)
 
         layout = QVBoxLayout(page)
         layout.addWidget(splitter, 1)
-        layout.addWidget(
-            _note(
-                "Rules are deterministic and offline. Output from remote systems is never interpreted as "
-                "instructions, and no proposed command runs without your explicit approval."
-            )
-        )
+        layout.addWidget(note)
         return page
 
     def diagnose(self) -> None:
@@ -331,13 +379,13 @@ class AssistantPanel(QWidget):
         form.addWidget(model_edit, 1)
         form.addWidget(test_button)
         layout.addLayout(form)
-        layout.addWidget(
-            _note(
-                "AI is optional. Terminal output, banners and remote logs are untrusted input: the model "
-                "may summarise them, but the deterministic policy engine decides what is allowed, and "
-                "AI-generated commands are labelled and never run automatically."
-            )
+        ai_note = _note(
+            "AI is optional. Terminal output, banners and remote logs are untrusted input: the model "
+            "may summarise them, but the deterministic policy engine decides what is allowed, and "
+            "AI-generated commands are labelled and never run automatically."
         )
+        ai_note.setVisible(not self.compact)
+        layout.addWidget(ai_note)
         layout.addStretch(1)
         return page
 
@@ -350,6 +398,19 @@ class AssistantPanel(QWidget):
             f"{provider.name} at {provider.host}: {'reachable' if available else 'not reachable'}"
             + (f" (model {provider.model})" if available else " - deterministic features remain available")
         )
+
+    # -- context ------------------------------------------------------------
+    def set_context(self, text: str) -> None:
+        """Show which terminal the assistant is working alongside."""
+        self.context_label.setText(text or "No terminal attached")
+
+    def set_environment(self, environment: str | None) -> None:
+        """Follow the attached session's shell family."""
+        if not environment or environment == "unknown":
+            return
+        index = self.environment_combo.findData(environment)
+        if index >= 0:
+            self.environment_combo.setCurrentIndex(index)
 
     # -- refresh ------------------------------------------------------------
     def refresh(self) -> None:

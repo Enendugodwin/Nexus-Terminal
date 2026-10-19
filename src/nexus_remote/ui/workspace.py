@@ -33,6 +33,7 @@ from nexus_remote.assistant.autocomplete import SuggestionSource, environment_fo
 from nexus_remote.connections.interfaces import ConnectionErrorKind, ProtocolError, SessionState
 from nexus_remote.connections.session import Session
 from nexus_remote.services import AppServices
+from nexus_remote.ui.assistant_panel import AssistantPanel
 from nexus_remote.ui.tasks import Worker, connect_worker
 from nexus_remote.ui.terminal import TerminalView
 
@@ -296,7 +297,7 @@ class WorkspacePage(QWidget):
             if index >= 0:
                 self.terminal_session_combo.setCurrentIndex(index)
             self._attach_terminal(session)
-            self.tabs.setCurrentWidget(self.terminal_view.parentWidget())
+            self.tabs.setCurrentWidget(self.terminal_page)
         elif session.protocol == "sftp":
             self.tabs.setCurrentIndex(3)
         elif session.protocol == "rdp":
@@ -455,6 +456,7 @@ class WorkspacePage(QWidget):
     # ------------------------------------------------------------------ terminal
     def _build_terminal_tab(self) -> QWidget:
         page = QWidget()
+        self.terminal_page = page
         self.terminal_session_combo = QComboBox()
         self.terminal_session_combo.setMinimumWidth(240)
         attach = QPushButton("Attach shell")
@@ -464,6 +466,13 @@ class WorkspacePage(QWidget):
         detach.clicked.connect(self.terminal_view_detach)
         clear = QPushButton("Clear")
         clear.clicked.connect(lambda: self.terminal_view.clear())
+        self.assistant_toggle = QPushButton("Assistant")
+        self.assistant_toggle.setCheckable(True)
+        self.assistant_toggle.setChecked(True)
+        self.assistant_toggle.setToolTip(
+            "Show or hide the assistant beside the terminal (suggestions, error diagnosis, history)."
+        )
+        self.assistant_toggle.toggled.connect(self._toggle_assistant)
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel("SSH session"))
@@ -471,6 +480,7 @@ class WorkspacePage(QWidget):
         toolbar.addWidget(attach)
         toolbar.addWidget(detach)
         toolbar.addWidget(clear)
+        toolbar.addWidget(self.assistant_toggle)
 
         self.terminal_status = QLabel("Connect to an SSH device to open an interactive shell.")
         self.terminal_status.setObjectName("Faint")
@@ -490,14 +500,44 @@ class WorkspacePage(QWidget):
         note.setObjectName("Faint")
         note.setWordWrap(True)
 
+        terminal_column = QWidget()
+        terminal_layout = QVBoxLayout(terminal_column)
+        terminal_layout.setContentsMargins(0, 0, 0, 0)
+        terminal_layout.addWidget(self.terminal_view, 1)
+        terminal_layout.addWidget(self.terminal_status)
+        terminal_layout.addWidget(note)
+
+        self.assistant_panel = AssistantPanel(self.services, compact=True)
+        self.terminal_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.terminal_splitter.setChildrenCollapsible(False)
+        self.terminal_splitter.addWidget(terminal_column)
+        self.terminal_splitter.addWidget(self.assistant_panel)
+        self.terminal_splitter.setStretchFactor(0, 3)
+        self.terminal_splitter.setStretchFactor(1, 1)
+        self.terminal_splitter.setSizes([900, 400])
+
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
         toolbar.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(toolbar)
-        layout.addWidget(self.terminal_view, 1)
-        layout.addWidget(self.terminal_status)
-        layout.addWidget(note)
+        layout.addWidget(self.terminal_splitter, 1)
         return page
+
+    def _toggle_assistant(self, visible: bool) -> None:
+        if visible:
+            self.assistant_panel.show()
+            width = getattr(self, "_assistant_width", 400)
+            total = max(self.terminal_splitter.width(), 640)
+            self.terminal_splitter.setSizes([max(total - width, 320), width])
+        else:
+            self._assistant_width = max(self.assistant_panel.width(), 320)
+            self.assistant_panel.hide()
+
+    def show_terminal_and_assistant(self) -> None:
+        """Open the Terminal tab with the assistant visible (used by the menu)."""
+        self.tabs.setCurrentWidget(self.terminal_page)
+        self.assistant_toggle.setChecked(True)
+        self.assistant_panel.show()
 
     def terminal_view_detach(self) -> None:
         self.terminal_view.detach()
@@ -529,6 +569,14 @@ class WorkspacePage(QWidget):
             label=f"{session.device_name} ({session.endpoint}) via {session.route.value}",
         )
         self.terminal_status.setText(f"Shell open on {session.device_name} ({session.endpoint}).")
+        device = self.services.devices.get(session.device_id)
+        self.assistant_panel.set_context(
+            f"Beside {session.device_name} - {session.endpoint}"
+        )
+        self.assistant_panel.set_environment(
+            environment_for_os(device.operating_system if device else None)
+        )
+        self.assistant_panel.refresh()
         self.services.audit.record(
             "session",
             "terminal.opened",
@@ -541,6 +589,7 @@ class WorkspacePage(QWidget):
 
     def _on_terminal_closed(self, session_id: str) -> None:
         self.terminal_status.setText("Shell closed.")
+        self.assistant_panel.set_context("No terminal attached")
         if session_id:
             session = self.services.sessions.get(session_id)
             self.services.audit.record(

@@ -66,10 +66,14 @@ state-changing commands require confirmation. Denials and approvals are audited.
 
 ### Assistant
 
-Autocomplete, snippets, playbooks and error diagnosis are local and
-deterministic. Model adapters are optional; their suggestions carry the
-`AI-generated (unverified)` label, rank below verified/history entries, and are
-never executed automatically.
+The assistant lives beside the open terminal (Terminal tab, right-hand pane)
+rather than as a separate page: its environment follows the attached shell
+(Windows → PowerShell, Linux → bash). Tabs for suggestions, history, error
+diagnosis/playbooks and optional AI remain available, and the pane can be
+collapsed with the Assistant toggle. Autocomplete, snippets, playbooks and
+error diagnosis are local and deterministic. Model adapters are optional; their
+suggestions carry the `AI-generated (unverified)` label, rank below
+verified/history entries, and are never executed automatically.
 
 ## Data model (SQLite)
 

@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
 
 from nexus_remote import config
 from nexus_remote.services import AppServices
-from nexus_remote.ui.assistant_panel import AssistantPanel
 from nexus_remote.ui.dashboard import DashboardPage
 from nexus_remote.ui.device_manager import DeviceManagerPage
 from nexus_remote.ui.diagnostics_view import DiagnosticsPage
@@ -31,12 +30,12 @@ from nexus_remote.ui.workspace import WorkspacePage
 PAGES = (
     ("Dashboard", "Inventory and session health"),
     ("Devices", "Saved device profiles and connection settings"),
-    ("Workspace", "Sessions, SSH console, files and remote desktop"),
+    ("Workspace", "Sessions, terminal with assistant, files and remote desktop"),
     ("Diagnostics", "Connectivity checks and evidence"),
-    ("Assistant", "Suggestions, history, error rules and playbooks"),
     ("Security", "Credentials, host keys and audit trail"),
     ("Settings", "Policy, routing restrictions and integrations"),
 )
+PAGE_INDEX = {name: index for index, (name, _description) in enumerate(PAGES)}
 
 
 class MainWindow(QMainWindow):
@@ -79,7 +78,6 @@ class MainWindow(QMainWindow):
         self.devices = DeviceManagerPage(services)
         self.workspace = WorkspacePage(services)
         self.diagnostics = DiagnosticsPage(services)
-        self.assistant = AssistantPanel(services)
         self.security = SecurityCenter(services)
         self.settings = SettingsPage(services)
         self.stack = QStackedWidget()
@@ -88,7 +86,6 @@ class MainWindow(QMainWindow):
             self.devices,
             self.workspace,
             self.diagnostics,
-            self.assistant,
             self.security,
             self.settings,
         ):
@@ -104,13 +101,14 @@ class MainWindow(QMainWindow):
         self.session_label = QLabel("0 active sessions")
         self.session_label.setObjectName("Muted")
         connections_button = QPushButton("Connections")
-        connections_button.clicked.connect(lambda: self._go_to(2))
+        connections_button.clicked.connect(lambda: self._go_to(PAGE_INDEX["Workspace"]))
         profile_button = QPushButton("Workspace menu")
         menu = QMenu(self)
-        menu.addAction(_action("New connection", lambda: self._go_to(2)))
-        menu.addAction(_action("Run diagnostics", lambda: self._go_to(3)))
-        menu.addAction(_action("Security Center", lambda: self._go_to(5)))
-        menu.addAction(_action("Settings", lambda: self._go_to(6)))
+        menu.addAction(_action("New connection", lambda: self._go_to(PAGE_INDEX["Workspace"])))
+        menu.addAction(_action("Assistant beside terminal", self._show_assistant))
+        menu.addAction(_action("Run diagnostics", lambda: self._go_to(PAGE_INDEX["Diagnostics"])))
+        menu.addAction(_action("Security Center", lambda: self._go_to(PAGE_INDEX["Security"])))
+        menu.addAction(_action("Settings", lambda: self._go_to(PAGE_INDEX["Settings"])))
         menu.addSeparator()
         menu.addAction(_action("Exit", self.close))
         profile_button.setMenu(menu)
@@ -166,10 +164,9 @@ class MainWindow(QMainWindow):
             return
         self.stack.setCurrentIndex(index)
         self.page_title.setText(PAGES[index][0])
-        if index != 4:
-            self.nav.blockSignals(True)
-            self.nav.setCurrentRow(index)
-            self.nav.blockSignals(False)
+        self.nav.blockSignals(True)
+        self.nav.setCurrentRow(index)
+        self.nav.blockSignals(False)
         self._refresh_current(index)
 
     def _go_to(self, index: int) -> None:
@@ -189,8 +186,6 @@ class MainWindow(QMainWindow):
                 self.workspace.refresh_rdp_devices()
             elif page is self.diagnostics:
                 self.diagnostics.refresh_devices()
-            elif page is self.assistant:
-                self.assistant.refresh()
             elif page is self.security:
                 self.security.refresh()
             elif page is self.settings:
@@ -211,11 +206,15 @@ class MainWindow(QMainWindow):
 
     # -- actions ------------------------------------------------------------
     def _connect(self, device_id: str, protocol: str) -> None:
-        self._go_to(2)
+        self._go_to(PAGE_INDEX["Workspace"])
         self.workspace.open_connection(device_id, protocol)
 
+    def _show_assistant(self) -> None:
+        self._go_to(PAGE_INDEX["Workspace"])
+        self.workspace.show_terminal_and_assistant()
+
     def _show_diagnostics(self, host: str, port: int, protocol: str) -> None:
-        self._go_to(3)
+        self._go_to(PAGE_INDEX["Diagnostics"])
         self.diagnostics.set_target(host, port or None, protocol)
         self.diagnostics.run_checks()
 
@@ -224,7 +223,7 @@ class MainWindow(QMainWindow):
             self.devices.search_edit.clear()
             return
         self.devices.search_edit.setText(text)
-        self._go_to(1)
+        self._go_to(PAGE_INDEX["Devices"])
 
     def _set_status(self, message: str) -> None:
         self.status_message.setText(message)

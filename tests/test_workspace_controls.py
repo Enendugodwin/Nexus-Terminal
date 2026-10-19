@@ -77,3 +77,32 @@ def test_rdp_tab_is_an_embedded_native_window(app, services, rdp_device):
     assert workspace.rdp_status.text() == "No embedded session."
     # No mstsc anywhere in the operator-facing copy.
     assert "mstsc" not in workspace.rdp_status.text().lower()
+
+
+def test_assistant_panel_sits_beside_the_terminal(app, services):
+    workspace = WorkspacePage(services)
+
+    assert workspace.terminal_splitter.indexOf(workspace.assistant_panel) == 1
+    assert workspace.assistant_panel.compact is True
+    assert workspace.assistant_toggle.isChecked()
+    assert workspace.assistant_panel.context_label.text() == "No terminal attached"
+
+
+def test_assistant_can_be_hidden_and_shown_from_the_terminal(app, services):
+    workspace = WorkspacePage(services)
+
+    workspace.assistant_toggle.setChecked(False)
+    assert workspace.assistant_panel.isHidden()
+
+    workspace.assistant_toggle.setChecked(True)
+    assert not workspace.assistant_panel.isHidden()
+
+
+def test_assistant_follows_the_attached_shell_environment(app, services):
+    workspace = WorkspacePage(services)
+
+    workspace.assistant_panel.set_environment("powershell")
+    assert workspace.assistant_panel.environment_combo.currentData() == "powershell"
+
+    workspace.assistant_panel.set_context("Beside windows-lab - 10.0.0.20:22")
+    assert "windows-lab" in workspace.assistant_panel.context_label.text()
