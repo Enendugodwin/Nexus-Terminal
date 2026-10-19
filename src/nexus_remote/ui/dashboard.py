@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from nexus_remote.connections.interfaces import SessionState
 from nexus_remote.services import AppServices
+from nexus_remote.ui.theme import TOKENS
 
 
 class MetricCard(QWidget):
@@ -111,7 +112,9 @@ class DashboardPage(QWidget):
         self.audit_card.set_value(str(self.services.audit.count()), "security-relevant records")
         pending = len(self.services.host_keys.pending())
         self.pending_keys_card.set_value(str(pending), "review in the Security Center")
-        self.pending_keys_card.value_label.setStyleSheet("color: #efb04e;" if pending else "")
+        self.pending_keys_card.value_label.setStyleSheet(
+            f"color: {TOKENS['warn']};" if pending else ""
+        )
 
         breakdown = ", ".join(f"{name}: {count}" for name, count in environments.items()) or "no devices yet"
         self.environment_label.setText(f"Environments - {breakdown}")

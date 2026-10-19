@@ -25,12 +25,13 @@ from PySide6.QtCore import Qt
 from nexus_remote.diagnostics.reports import PROTOCOL_PORTS
 from nexus_remote.services import AppServices
 from nexus_remote.ui.tasks import Worker, connect_worker
+from nexus_remote.ui.theme import TOKENS
 
 RESULT_COLOURS = {
-    "ok": "#37c98b",
-    "failed": "#ff6b6b",
-    "partial": "#efb04e",
-    "skipped": "#9aa5b8",
+    "ok": TOKENS["ok"],
+    "failed": TOKENS["danger"],
+    "partial": TOKENS["warn"],
+    "skipped": TOKENS["text_muted"],
 }
 
 

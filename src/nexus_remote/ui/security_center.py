@@ -25,12 +25,13 @@ from PySide6.QtWidgets import (
 from nexus_remote.security.redact import MASK
 from nexus_remote.services import AppServices
 from nexus_remote.ui.device_dialog import CredentialPromptDialog
+from nexus_remote.ui.theme import TOKENS
 
 SEVERITY_COLOURS = {
-    "info": "#9aa5b8",
-    "notice": "#4f8cff",
-    "warning": "#efb04e",
-    "critical": "#ff6b6b",
+    "info": TOKENS["text_muted"],
+    "notice": TOKENS["accent"],
+    "warning": TOKENS["warn"],
+    "critical": TOKENS["danger"],
 }
 
 
@@ -350,10 +351,10 @@ class SecurityCenter(QWidget):
                     item.setData(Qt.ItemDataRole.UserRole, dict(entry))
                 if column == 3:
                     colour = {
-                        "trusted": "#37c98b",
-                        "pending": "#efb04e",
-                        "revoked": "#ff6b6b",
-                    }.get(str(value), "#9aa5b8")
+                        "trusted": TOKENS["ok"],
+                        "pending": TOKENS["warn"],
+                        "revoked": TOKENS["danger"],
+                    }.get(str(value), TOKENS["text_muted"])
                     item.setForeground(QColor(colour))
                 self.host_keys_table.setItem(row, column, item)
 
@@ -375,7 +376,7 @@ class SecurityCenter(QWidget):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 if column == 1:
-                    item.setForeground(QColor(SEVERITY_COLOURS.get(event.severity, "#9aa5b8")))
+                    item.setForeground(QColor(SEVERITY_COLOURS.get(event.severity, TOKENS["text_muted"])))
                 self.audit_table.setItem(row, column, item)
 
 

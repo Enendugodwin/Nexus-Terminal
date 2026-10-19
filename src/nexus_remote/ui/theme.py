@@ -1,4 +1,4 @@
-"""Application theme: a calm, high-contrast dark workspace.
+"""Application theme: a hacker-green workspace on black.
 
 Colours are declared once as tokens so pages never hard-code literals.
 """
@@ -8,21 +8,21 @@ from __future__ import annotations
 from typing import Any
 
 TOKENS: dict[str, str] = {
-    "bg": "#0f1216",
-    "bg_alt": "#141920",
-    "panel": "#181e26",
-    "panel_alt": "#1e2531",
-    "border": "#2a3140",
-    "border_strong": "#3a4356",
-    "text": "#e7ecf3",
-    "text_muted": "#9aa5b8",
-    "text_faint": "#6b7688",
-    "accent": "#4f8cff",
-    "accent_hover": "#6ea1ff",
-    "accent_soft": "#1d2c47",
-    "ok": "#37c98b",
-    "warn": "#efb04e",
-    "danger": "#ff6b6b",
+    "bg": "#040704",
+    "bg_alt": "#07100a",
+    "panel": "#0a160d",
+    "panel_alt": "#0e1f13",
+    "border": "#1b3a22",
+    "border_strong": "#2e5a36",
+    "text": "#d9ffe0",
+    "text_muted": "#86c994",
+    "text_faint": "#4f7f59",
+    "accent": "#00ff41",
+    "accent_hover": "#62ff88",
+    "accent_soft": "#0f3a18",
+    "ok": "#3dff8b",
+    "warn": "#ffc857",
+    "danger": "#ff5c5c",
     "mono": "'Cascadia Mono', 'Consolas', 'DejaVu Sans Mono', monospace",
     "ui": "'Segoe UI Variable', 'Segoe UI', 'Inter', sans-serif",
 }
@@ -62,7 +62,7 @@ def stylesheet() -> str:
         font-size: 13pt;
         font-weight: 600;
         padding: 14px 16px 6px 16px;
-        color: {t['text']};
+        color: {t['accent']};
     }}
     #SidebarSubtitle {{
         color: {t['text_faint']};
@@ -82,7 +82,7 @@ def stylesheet() -> str:
     }}
     #NavList::item:selected {{
         background-color: {t['accent_soft']};
-        color: {t['text']};
+        color: {t['accent']};
     }}
     #NavList::item:hover:!selected {{
         background-color: {t['panel_alt']};
@@ -94,6 +94,7 @@ def stylesheet() -> str:
     #PageTitle {{
         font-size: 15pt;
         font-weight: 600;
+        color: {t['accent']};
     }}
     #PageSubtitle {{
         color: {t['text_muted']};
@@ -111,7 +112,7 @@ def stylesheet() -> str:
     #MetricValue {{
         font-size: 20pt;
         font-weight: 600;
-        color: {t['text']};
+        color: {t['accent']};
     }}
     #MetricLabel {{
         color: {t['text_muted']};
@@ -151,7 +152,7 @@ def stylesheet() -> str:
     QPushButton#Primary {{
         background-color: {t['accent']};
         border-color: {t['accent']};
-        color: #0b1220;
+        color: #001a08;
         font-weight: 600;
     }}
     QPushButton#Primary:hover {{
@@ -203,7 +204,7 @@ def stylesheet() -> str:
     }}
     QTabBar::tab:selected {{
         background-color: {t['panel_alt']};
-        color: {t['text']};
+        color: {t['accent']};
     }}
     QGroupBox {{
         border: 1px solid {t['border']};
