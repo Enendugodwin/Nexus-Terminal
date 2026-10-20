@@ -39,6 +39,18 @@ from nexus_remote.services import AppServices
 
 EDITABLE_PROTOCOLS = ("ssh", "sftp", "rdp", "smb")
 
+
+def _smb_note() -> str:
+    from nexus_remote.protocols.smb import smb_available
+
+    availability = (
+        "The optional 'smbprotocol' package is installed."
+        if smb_available()
+        else "The optional 'smbprotocol' package is not installed (pip install \"nexus-remote[smb]\")."
+    )
+    return "SMB talks SMB 2/3 only and never falls back to SMB1; a share name is required. " + availability
+
+
 AUTH_LABELS = {
     "credential_vault": "Stored credential (OS vault)",
     "ssh_key": "SSH private key (vault)",
@@ -91,13 +103,14 @@ class DeviceDialog(QDialog):
         identity.addRow("Notes", self.notes_edit)
 
         # -- connections ----------------------------------------------------
-        self._protocol_widgets: dict[str, tuple[QCheckBox, QSpinBox, QComboBox, QLineEdit]] = {}
+        self._protocol_widgets: dict[str, tuple[QCheckBox, QSpinBox, QComboBox, QLineEdit, QLineEdit]] = {}
         connections_layout = QGridLayout()
         connections_layout.addWidget(QLabel("Protocol"), 0, 0)
         connections_layout.addWidget(QLabel("Enabled"), 0, 1)
         connections_layout.addWidget(QLabel("Port"), 0, 2)
         connections_layout.addWidget(QLabel("Authentication"), 0, 3)
         connections_layout.addWidget(QLabel("Username"), 0, 4)
+        connections_layout.addWidget(QLabel("SMB share"), 0, 5)
         for row, protocol in enumerate(EDITABLE_PROTOCOLS, start=1):
             cfg = device.connection(protocol) if device else ProtocolConfig(protocol=protocol, enabled=protocol in ("ssh", "sftp"))
             enabled = QCheckBox()
@@ -107,12 +120,18 @@ class DeviceDialog(QDialog):
             port.setValue(int(cfg.port) if cfg and cfg.port else DEFAULT_PORTS.get(protocol, 22))
             auth = _combo(AUTH_METHODS, cfg.auth_method if cfg else "credential_vault", AUTH_LABELS)
             username = QLineEdit(cfg.username if cfg else "")
+            share = QLineEdit(str((cfg.extra or {}).get("share", "")) if cfg else "")
+            share.setPlaceholderText("required for SMB, e.g. Data")
+            share.setEnabled(protocol == "smb")
+            if protocol != "smb":
+                share.setVisible(False)
             connections_layout.addWidget(QLabel(protocol.upper()), row, 0)
             connections_layout.addWidget(enabled, row, 1)
             connections_layout.addWidget(port, row, 2)
             connections_layout.addWidget(auth, row, 3)
             connections_layout.addWidget(username, row, 4)
-            self._protocol_widgets[protocol] = (enabled, port, auth, username)
+            connections_layout.addWidget(share, row, 5)
+            self._protocol_widgets[protocol] = (enabled, port, auth, username, share)
 
         # -- routing --------------------------------------------------------
         routing = device.routing if device else RoutingPreferences()
@@ -156,6 +175,7 @@ class DeviceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(_group("Identity", identity))
         layout.addWidget(_group("Connection profiles", _wrap(connections_layout)))
+        layout.addWidget(_note(_smb_note()))
         layout.addWidget(_group("Routing", routing_form))
         layout.addWidget(credentials_button)
         layout.addWidget(buttons)
@@ -178,13 +198,22 @@ class DeviceDialog(QDialog):
 
     def _build_device(self) -> Device:
         connections: dict[str, ProtocolConfig] = {}
-        for protocol, (enabled, port, auth, username) in self._protocol_widgets.items():
+        for protocol, (enabled, port, auth, username, share) in self._protocol_widgets.items():
+            previous = self.existing.connection(protocol) if self.existing else None
+            extra = dict(previous.extra) if previous else {}
+            if protocol == "smb":
+                value = share.text().strip().strip("\\/")
+                if value:
+                    extra["share"] = value
+                else:
+                    extra.pop("share", None)
             connections[protocol] = ProtocolConfig(
                 protocol=protocol,
                 enabled=enabled.isChecked(),
                 port=port.value(),
                 auth_method=auth.currentData() or auth.currentText(),
                 username=username.text().strip(),
+                extra=extra,
             )
         device = self.existing or Device(name="", hostname="")
         device.name = self.name_edit.text().strip()

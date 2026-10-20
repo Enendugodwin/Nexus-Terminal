@@ -15,6 +15,9 @@
   certificate" is an explicit per-session opt-out.
 - No administrator rights are required. The app is a per-user desktop tool and
   does not install a service.
+- SMB browsing is optional: `pip install -e ".[smb]"` (or the packaged bundle
+  below) adds `smbprotocol`, which speaks SMB 2/3 only. The connection profile
+  needs the share name.
 
 ## Source install
 
@@ -22,7 +25,7 @@
 git clone <repository>
 cd nexus-remote
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,smb]"
 .\.venv\Scripts\python.exe -m nexus_remote.main --selftest
 .\.venv\Scripts\python.exe -m nexus_remote.main
 ```

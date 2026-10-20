@@ -32,6 +32,10 @@ analysis = Analysis(
         "pyte",
         "paramiko",
         "cryptography",
+        # Optional SMB support: the adapter imports smbclient lazily, so the
+        # bundler needs to be told it may be present.
+        "smbclient",
+        "smbprotocol",
     ],
     hookspath=[],
     hooksconfig={},

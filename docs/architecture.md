@@ -21,7 +21,7 @@ Services (services.py)
 |                |                | errors         | policy         |
 +----------------+----------------+----------------+----------------+
         |
-protocols: SSH/SFTP (paramiko), RDP (embedded FreeRDP), SMB (optional)
+protocols: SSH/SFTP (paramiko), RDP (embedded FreeRDP), SMB 2/3 (optional)
         |
 storage: SQLite + forward-only migrations, FTS5 when available
 ```
@@ -57,8 +57,16 @@ and sent with `resize_pty`. Scrollback is retained in pyte's history buffer;
 selection and clipboard stay local. Remote output is rendered only - it is
 never evaluated.
 
-### One-off commands
+### File manager
 
+The Files tab works with either transport. `SessionManager` exposes connected
+`sftp` and `smb` sessions in one picker; both adapters implement `listdir`,
+`mkdir`, `remove`, `rmdir` and streaming `upload`/`download` with progress,
+resume and cancellation, so the pane's path handling (`""`/`.` is the root) is
+shared. SMB paths stay share-relative and forward-slash; `SMBAdapter._unc()`
+converts them to UNC for `smbprotocol`. SMB2/3 only - there is no SMB1 fallback.
+
+### One-off commands
 The SSH console tab runs `SessionManager.execute()`. `PolicyEngine.classify()`
 labels the command `read-only`, `modifies-state`, `destructive` or `unknown`.
 Destructive commands are denied unless explicitly enabled *and* approved;

@@ -67,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"audit events   : {services.audit.count()}")
         print(f"history rows   : {services.history.stats().get('total', 0)}")
         print(f"adapters       : {', '.join(services.sessions.available_protocols()) or 'none registered'}")
+        from nexus_remote.protocols.smb import smb_available
+
+        print(f"smb support    : {'available' if smb_available() else 'optional dependency not installed'}")
         services.close()
         return 0
 

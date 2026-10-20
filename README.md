@@ -5,11 +5,11 @@ sessions, a real interactive terminal, an embedded FreeRDP desktop, device
 inventory, diagnostics and a deterministic assistant. Everything that matters
 works offline; no AI model is required to connect, diagnose or run a playbook.
 
-> **Status: early MVP (0.1.0).** SSH, SFTP and interactive terminal emulation
-> are implemented. RDP is performed by the application itself through the
-> FreeRDP client, embedded in the workspace window (`mstsc.exe` is not used).
-> SMB is an optional dependency and is not wired into the UI yet. Cloud
-> discovery, NAT traversal and remote agents are deliberately deferred.
+> **Status: early MVP (0.1.0).** SSH, SFTP, interactive terminal emulation and
+> SMB browsing are implemented. RDP is performed by the application itself
+> through the FreeRDP client, embedded in the workspace window (`mstsc.exe` is
+> not used). SMB needs the optional `smbprotocol` extra and is SMB 2/3 only.
+> Cloud discovery, NAT traversal and remote agents are deliberately deferred.
 
 ## Highlights
 
@@ -20,8 +20,8 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
 - **Interactive terminal** - VT100/xterm emulation via `pyte`: cursor movement,
   colours, full-screen programs, scrollback, PTY resize, copy/paste, bracketed
   paste and application cursor keys.
-- **SFTP file manager** - two-pane browser, streamed 512 KB transfers, resume
-  and cancel.
+- **SFTP and SMB file manager** - two-pane browser for SSH/SFTP sessions and
+  SMB 2/3 shares, streamed 512 KB transfers, resume and cancel.
 - **Diagnostics** - DNS, TCP handshake, protocol banner, local route lookup,
   interface/VPN detection and ICMP (with honest caveats about what each result
   proves).
@@ -39,8 +39,10 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
 - Python 3.11+ (developed on 3.13).
 - Optional external tools: the FreeRDP client (`wlfreerdp.exe`/`sdl-freerdp.exe`)
   for RDP, embedded in the workspace window. `packaging/install_freerdp.ps1`
-  fetches the official Windows nightly into the per-user tools directory. SMB
-  support is optional and not yet exposed in the UI.
+  fetches the official Windows nightly into the per-user tools directory.
+- Optional SMB support (`pip install "nexus-remote[smb]"`, which installs
+  `smbprotocol`). Without it the SMB rows still appear, and connecting explains
+  exactly what to install. SMB1 is never used.
 
 ## Install and run
 
@@ -104,7 +106,7 @@ src/nexus_remote/
 
 ## Non-goals for this phase
 
-Embedded RDP rendering is done with FreeRDP; still deferred: SMB browsing in the UI, cloud asset
+Embedded RDP rendering is done with FreeRDP; still deferred: cloud asset
 discovery, NAT traversal, relay/agent deployment and any automatic execution of
 AI-proposed commands. The interfaces exist so these can be added without
 changing the security model.

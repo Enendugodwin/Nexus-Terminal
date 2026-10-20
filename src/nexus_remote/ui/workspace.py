@@ -1,4 +1,4 @@
-"""Workspace: sessions, SSH console, SFTP file manager and RDP launch."""
+"""Workspace: sessions, SSH console, SFTP/SMB file manager and RDP launch."""
 
 from __future__ import annotations
 
@@ -40,6 +40,30 @@ from nexus_remote.ui.terminal import TerminalView
 SESSION_COLUMNS = ["Device", "Protocol", "Endpoint", "Route", "State", "Detail"]
 
 
+def _describe_remote_entry(entry: object) -> str:
+    """Format an SFTP or SMB entry for the remote list.
+
+    ``RemoteEntry`` carries POSIX permissions, ``SMBEntry`` does not; in that
+    case the size is shown instead.
+    """
+    prefix = "[ ] " if getattr(entry, "is_dir", False) else "    "
+    name = str(getattr(entry, "name", ""))
+    if getattr(entry, "is_dir", False):
+        return f"{prefix}{name}"
+    permissions = str(getattr(entry, "permissions", "") or "")
+    detail = permissions if permissions.strip("- ") else _human_size(int(getattr(entry, "size", 0) or 0))
+    return f"{prefix}{name}   {detail}".rstrip()
+
+
+def _human_size(size: int) -> str:
+    value = float(max(size, 0))
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
 class WorkspacePage(QWidget):
     """Everything the operator does with a live connection."""
 
@@ -57,7 +81,8 @@ class WorkspacePage(QWidget):
         self.tabs.addTab(self._build_sessions_tab(), "Sessions")
         self.tabs.addTab(self._build_terminal_tab(), "Terminal")
         self.tabs.addTab(self._build_console_tab(), "SSH console")
-        self.tabs.addTab(self._build_files_tab(), "Files")
+        self.files_page = self._build_files_tab()
+        self.tabs.addTab(self.files_page, "Files")
         self.tabs.addTab(self._build_rdp_tab(), "Remote desktop")
 
         layout = QVBoxLayout(self)
@@ -298,8 +323,12 @@ class WorkspacePage(QWidget):
                 self.terminal_session_combo.setCurrentIndex(index)
             self._attach_terminal(session)
             self.tabs.setCurrentWidget(self.terminal_page)
-        elif session.protocol == "sftp":
-            self.tabs.setCurrentIndex(3)
+        elif session.protocol in ("sftp", "smb"):
+            self._refresh_remote_session_combo()
+            index = self.file_session_combo.findData(session.id)
+            if index >= 0:
+                self.file_session_combo.setCurrentIndex(index)
+            self.tabs.setCurrentWidget(self.files_page)
         elif session.protocol == "rdp":
             self.tabs.setCurrentIndex(4)
         self._refresh_session_choices()
@@ -795,6 +824,7 @@ class WorkspacePage(QWidget):
         page = QWidget()
         self.file_session_combo = QComboBox()
         self.file_session_combo.setMinimumWidth(240)
+        self.file_session_combo.currentIndexChanged.connect(self._on_files_session_changed)
 
         self.local_path_edit = QLineEdit(self.local_path)
         self.local_path_edit.returnPressed.connect(lambda: self.load_local(self.local_path_edit.text()))
@@ -863,7 +893,7 @@ class WorkspacePage(QWidget):
         panes.addWidget(remote_pane)
 
         session_form = QFormLayout()
-        session_form.addRow("SFTP session", self.file_session_combo)
+        session_form.addRow("Remote session", self.file_session_combo)
 
         layout = QVBoxLayout(page)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -874,12 +904,14 @@ class WorkspacePage(QWidget):
         layout.addWidget(self.cancel_transfer_button)
         layout.addWidget(self.transfer_status)
         note = QLabel(
-            "Transfers stream in 512 KB chunks and can resume: large files never load into memory. "
-            "Remote-to-remote transfers use the connected session as the staging path."
+            "Works over SFTP or an SMB 2/3 share. Transfers stream in 512 KB chunks and can resume: "
+            "large files never load into memory. Remote-to-remote transfers use the connected session "
+            "as the staging path."
         )
         note.setObjectName("Faint")
         note.setWordWrap(True)
         layout.addWidget(note)
+        self._set_transfer_controls(False)
         self.load_local(self.local_path)
         return page
 
@@ -887,14 +919,37 @@ class WorkspacePage(QWidget):
         if not hasattr(self, "file_session_combo"):
             return
         current = self.file_session_combo.currentData()
+        self.file_session_combo.blockSignals(True)
         self.file_session_combo.clear()
         for session in self.services.sessions.active_sessions():
-            if session.protocol == "sftp" and session.state is SessionState.CONNECTED:
-                self.file_session_combo.addItem(f"{session.device_name} ({session.endpoint})", session.id)
+            if session.protocol in ("sftp", "smb") and session.state is SessionState.CONNECTED:
+                self.file_session_combo.addItem(
+                    f"{session.device_name} ({session.protocol.upper()} {session.endpoint})", session.id
+                )
         index = self.file_session_combo.findData(current)
         if index >= 0:
             self.file_session_combo.setCurrentIndex(index)
+        self.file_session_combo.blockSignals(False)
         self._set_transfer_controls(bool(self.file_session_combo.count()))
+        selected = self.file_session_combo.currentData()
+        if selected and selected != current:
+            # The selection changed while signals were blocked: reset the pane
+            # to that session's root and list it.
+            self._on_files_session_changed()
+
+    def _on_files_session_changed(self) -> None:
+        session = self._remote_session()
+        if session is None:
+            return
+        self.remote_path = self._remote_root(session)
+        self.remote_path_edit.setText(self.remote_path)
+        self.remote_list.clear()
+        self.load_remote(self.remote_path)
+
+    @staticmethod
+    def _remote_root(session: Session | None) -> str:
+        """SFTP starts at ``.``; an SMB share starts at the share root."""
+        return "" if session is not None and session.protocol == "smb" else "."
 
     def _set_transfer_controls(self, enabled: bool) -> None:
         for widget in (
@@ -937,7 +992,7 @@ class WorkspacePage(QWidget):
     def load_remote(self, path: str) -> None:
         session = self._remote_session()
         if session is None or session.adapter is None:
-            self.transfer_status.setText("Connect an SFTP session to browse remote files.")
+            self.transfer_status.setText("Connect an SFTP or SMB session to browse remote files.")
             return
         adapter = session.adapter
         try:
@@ -949,28 +1004,34 @@ class WorkspacePage(QWidget):
         self.remote_path_edit.setText(path)
         self.remote_list.clear()
         for entry in entries:
-            prefix = "[ ] " if entry.is_dir else "    "
-            item = QListWidgetItem(f"{prefix}{entry.name}   {entry.permissions}")
+            item = QListWidgetItem(_describe_remote_entry(entry))
             item.setData(Qt.ItemDataRole.UserRole, entry.path)
             item.setData(Qt.ItemDataRole.UserRole + 1, entry.is_dir)
             self.remote_list.addItem(item)
-        self.transfer_status.setText(f"{len(entries)} entries in {session.device_name}:{path}")
+        self.transfer_status.setText(
+            f"{len(entries)} entries in {session.device_name} ({session.protocol.upper()}):{path or '/'}"
+        )
 
     def _remote_activated(self, item: QListWidgetItem) -> None:
         if item.data(Qt.ItemDataRole.UserRole + 1):
             self.load_remote(str(item.data(Qt.ItemDataRole.UserRole)))
 
     def _remote_up(self) -> None:
-        current = self.remote_path.rstrip("/")
+        session = self._remote_session()
+        root = self._remote_root(session)
+        current = self.remote_path.replace("\\", "/").rstrip("/")
         if current in ("", "."):
             return
-        parent = current.rsplit("/", 1)[0] if "/" in current else "/"
-        self.load_remote(parent or "/")
+        if "/" in current:
+            parent = current.rsplit("/", 1)[0] or ("/" if current.startswith("/") else root)
+        else:
+            parent = root
+        self.load_remote(parent)
 
     def upload_files(self) -> None:  # pragma: no cover - needs a file dialog
         session = self._remote_session()
         if session is None or session.adapter is None:
-            QMessageBox.information(self, "No SFTP session", "Connect an SFTP session first.")
+            QMessageBox.information(self, "No remote session", "Connect an SFTP or SMB session first.")
             return
         selected = [item for item in self.local_list.selectedItems() if not item.data(Qt.ItemDataRole.UserRole + 1)]
         if selected:
@@ -984,7 +1045,7 @@ class WorkspacePage(QWidget):
     def download_files(self) -> None:
         session = self._remote_session()
         if session is None or session.adapter is None:
-            QMessageBox.information(self, "No SFTP session", "Connect an SFTP session first.")
+            QMessageBox.information(self, "No remote session", "Connect an SFTP or SMB session first.")
             return
         selected = [item for item in self.remote_list.selectedItems() if not item.data(Qt.ItemDataRole.UserRole + 1)]
         if not selected:
@@ -1046,6 +1107,7 @@ class WorkspacePage(QWidget):
             return
         adapter = session.adapter
         remote_dir = self.remote_path
+        self._transfer_protocol = session.protocol
         cancel_flag: list[bool] = []
         self._cancel_flags[session.id] = cancel_flag
         self.cancel_transfer_button.setEnabled(True)
@@ -1098,7 +1160,9 @@ class WorkspacePage(QWidget):
     def _on_transfer_failed(self, message: str, detail: str) -> None:
         self.cancel_transfer_button.setEnabled(False)
         self.transfer_status.setText(f"transfer failed: {message}")
-        diagnosis = self.services.errors.diagnose(detail, "unknown", "sftp")
+        diagnosis = self.services.errors.diagnose(
+            detail, "unknown", getattr(self, "_transfer_protocol", "sftp")
+        )
         if diagnosis is not None:
             self.diagnosis_view.setPlainText(diagnosis.render())
 
