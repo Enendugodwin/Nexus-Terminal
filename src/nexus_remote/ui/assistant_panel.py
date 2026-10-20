@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from nexus_remote.assistant.autocomplete import SuggestionSource
 from nexus_remote.assistant.command_history import CommandStatus
 from nexus_remote.services import AppServices
+from nexus_remote.ui.command_input import SuggestionLineEdit
 
 
 class AssistantPanel(QWidget):
@@ -87,13 +88,26 @@ class AssistantPanel(QWidget):
             self.environment_combo.addItem(environment, environment)
         self.environment_combo.currentIndexChanged.connect(self._update_suggestions)
 
-        self.prefix_edit = QLineEdit()
-        self.prefix_edit.setPlaceholderText("start typing a command…")
+        self.prefix_edit = SuggestionLineEdit()
+        self.prefix_edit.setPlaceholderText("start typing a command… (Tab completes)")
         self.prefix_edit.setObjectName("Mono")
+        self.prefix_edit.setMinimumHeight(38)
+        self.prefix_edit.setMinimumWidth(180)
+        self.prefix_edit.setClearButtonEnabled(True)
+        self.prefix_edit.setToolTip(
+            "Suggestions appear inline as you type. Tab or → completes, ↑ ↓ browse, Enter takes the "
+            "highlighted suggestion."
+        )
         self.prefix_edit.textEdited.connect(self._update_suggestions)
+        self.prefix_edit.accepted.connect(lambda _text: self.suggestion_list.setCurrentRow(-1))
+        self.prefix_edit.navigate.connect(self._navigate_suggestions)
+        self.prefix_edit.returnPressed.connect(self._accept_suggestion)
 
         self.suggestion_list = QListWidget()
         self.suggestion_list.itemDoubleClicked.connect(self._explain_selected)
+        self.suggestion_list.currentItemChanged.connect(
+            lambda current, _previous: self._explain_selected(current) if current else None
+        )
 
         self.explanation_view = QPlainTextEdit()
         self.explanation_view.setReadOnly(True)
@@ -169,6 +183,28 @@ class AssistantPanel(QWidget):
             if suggestion.source is SuggestionSource.AI_GENERATED:
                 item.setForeground(Qt.GlobalColor.yellow)
             self.suggestion_list.addItem(item)
+        self.suggestion_list.setCurrentRow(-1)
+        self.prefix_edit.set_suggestion(suggestions[0].text if suggestions else None)
+
+    def _navigate_suggestions(self, delta: int) -> None:
+        count = self.suggestion_list.count()
+        if not count:
+            return
+        row = self.suggestion_list.currentRow()
+        row = 0 if row < 0 else (row + delta) % count
+        self.suggestion_list.setCurrentRow(row)
+        item = self.suggestion_list.item(row)
+        self.prefix_edit.set_suggestion(str(item.data(Qt.ItemDataRole.UserRole)))
+
+    def _accept_suggestion(self) -> None:
+        item = self.suggestion_list.currentItem()
+        if item is not None:
+            self.prefix_edit.setText(str(item.data(Qt.ItemDataRole.UserRole)))
+        elif not self.prefix_edit.accept_suggestion():
+            return
+        self.prefix_edit.setCursorPosition(len(self.prefix_edit.text()))
+        self.prefix_edit.clear_suggestion()
+        self.suggestion_list.setCurrentRow(-1)
 
     def _explain_selected(self, item: QListWidgetItem) -> None:
         command = str(item.data(Qt.ItemDataRole.UserRole))

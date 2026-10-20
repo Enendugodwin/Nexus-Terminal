@@ -34,6 +34,7 @@ from nexus_remote.connections.interfaces import ConnectionErrorKind, ProtocolErr
 from nexus_remote.connections.session import Session
 from nexus_remote.services import AppServices
 from nexus_remote.ui.assistant_panel import AssistantPanel
+from nexus_remote.ui.command_input import SuggestionLineEdit
 from nexus_remote.ui.tasks import Worker, connect_worker
 from nexus_remote.ui.terminal import TerminalView
 
@@ -644,11 +645,19 @@ class WorkspacePage(QWidget):
         self.console_output.setObjectName("Mono")
         self.console_output.setMaximumBlockCount(5000)
 
-        self.console_input = QLineEdit()
+        self.console_input = SuggestionLineEdit()
         self.console_input.setObjectName("Mono")
-        self.console_input.setPlaceholderText("Type a command - suggestions appear from the local catalog and your history")
-        self.console_input.returnPressed.connect(self.run_command)
+        self.console_input.setMinimumHeight(34)
+        self.console_input.setPlaceholderText("Type a command - the rest is suggested from the catalog and your history")
+        self.console_input.returnPressed.connect(self._on_console_return)
         self.console_input.textEdited.connect(self._update_completions)
+        self.console_input.accepted.connect(lambda _text: self.completion_list.setCurrentRow(-1))
+        self.console_input.navigate.connect(self._navigate_completions)
+        self.completion_hint = QLabel("Tab or → completes · ↑ ↓ choose · Enter runs · Esc dismisses")
+        self.completion_hint.setObjectName("Faint")
+        self.console_environment.currentIndexChanged.connect(
+            lambda: self._update_completions(self.console_input.text())
+        )
         self.run_button = QPushButton("Run")
         self.run_button.setObjectName("Primary")
         self.run_button.clicked.connect(self.run_command)
@@ -656,6 +665,7 @@ class WorkspacePage(QWidget):
         self.completion_list = QListWidget()
         self.completion_list.setMaximumHeight(120)
         self.completion_list.itemDoubleClicked.connect(self._accept_completion)
+        self.completion_list.itemClicked.connect(self._accept_completion)
 
         self.diagnosis_view = QPlainTextEdit()
         self.diagnosis_view.setReadOnly(True)
@@ -678,6 +688,7 @@ class WorkspacePage(QWidget):
         layout.addLayout(controls)
         layout.addWidget(self.console_output, 3)
         layout.addLayout(command_row)
+        layout.addWidget(self.completion_hint)
         layout.addWidget(self.completion_list)
         layout.addWidget(QLabel("Diagnosis"))
         layout.addWidget(self.diagnosis_view, 1)
@@ -725,10 +736,38 @@ class WorkspacePage(QWidget):
             if suggestion.source is SuggestionSource.AI_GENERATED:
                 item.setForeground(Qt.GlobalColor.yellow)
             self.completion_list.addItem(item)
+        self.completion_list.setCurrentRow(-1)
+        # Preview the best match inline; the widget only shows it when it really
+        # completes what has been typed.
+        self.console_input.set_suggestion(suggestions[0].text if suggestions else None)
 
     def _accept_completion(self, item: QListWidgetItem) -> None:
         self.console_input.setText(str(item.data(Qt.ItemDataRole.UserRole)))
+        self.console_input.setCursorPosition(len(self.console_input.text()))
+        self.console_input.clear_suggestion()
+        self.completion_list.setCurrentRow(-1)
         self.console_input.setFocus()
+
+    def _navigate_completions(self, delta: int) -> None:
+        count = self.completion_list.count()
+        if not count:
+            return
+        row = self.completion_list.currentRow()
+        row = 0 if row < 0 else (row + delta) % count
+        self.completion_list.setCurrentRow(row)
+        item = self.completion_list.item(row)
+        # Up/Down preview the highlighted candidate; Enter then accepts it.
+        self.console_input.set_suggestion(str(item.data(Qt.ItemDataRole.UserRole)))
+
+    def _on_console_return(self) -> None:
+        """Enter completes a highlighted candidate first, then runs the line."""
+        item = self.completion_list.currentItem()
+        if item is not None:
+            text = str(item.data(Qt.ItemDataRole.UserRole))
+            if text != self.console_input.text():
+                self._accept_completion(item)
+                return
+        self.run_command()
 
     def run_command(self) -> None:
         session = self._console_session()

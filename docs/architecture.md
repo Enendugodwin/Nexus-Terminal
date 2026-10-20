@@ -78,7 +78,14 @@ The assistant lives beside the open terminal (Terminal tab, right-hand pane)
 rather than as a separate page: its environment follows the attached shell
 (Windows → PowerShell, Linux → bash). Tabs for suggestions, history, error
 diagnosis/playbooks and optional AI remain available, and the pane can be
-collapsed with the Assistant toggle. Autocomplete, snippets, playbooks and
+collapsed with the Assistant toggle.
+
+Command completion is inline: `SuggestionLineEdit` (ui/command_input.py) paints
+the engine's best match after the cursor in the faint token colour, so the
+proposal is visibly not part of the line and can never be submitted, copied or
+selected. Tab or Right-arrow at the end accepts it, Escape dismisses it, and
+Up/Down drive a companion list that Enter fills in before anything runs. The same
+widget is used by the SSH console and the assistant's Prefix box. Autocomplete, snippets, playbooks and
 error diagnosis are local and deterministic. Model adapters are optional; their
 suggestions carry the `AI-generated (unverified)` label, rank below
 verified/history entries, and are never executed automatically.

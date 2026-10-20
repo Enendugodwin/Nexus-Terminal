@@ -26,8 +26,10 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
   interface/VPN detection and ICMP (with honest caveats about what each result
   proves).
 - **Deterministic assistant** - offline autocomplete with provenance labels,
-  history, snippets, playbooks and rule-based error diagnosis. Optional model
-  adapters are clearly labelled *unverified* and can never execute anything.
+  history, snippets, playbooks and rule-based error diagnosis. The best match is
+  previewed inline (ghost text) while you type: Tab or → completes it, ↑ ↓ browse
+  the full list, Enter completes then runs. Optional model adapters are clearly
+  labelled *unverified* and can never execute anything.
 - **Security-first defaults** - credentials stay in Windows Credential Manager;
   SQLite and logs hold references only. Unknown SSH host keys are refused until
   the operator trusts the fingerprint. Dangerous commands are blocked by a
