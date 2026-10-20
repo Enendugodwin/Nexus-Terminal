@@ -9,6 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from nexus_remote.assistant.catalog import parse_catalog, write_catalog
+from nexus_remote.assistant.catalog_update import CatalogUpdateResult
 from nexus_remote.ui.commands_page import CommandDialog, CommandsPage
 from nexus_remote.ui.main_window import PAGES
 from nexus_remote.ui.workspace import WorkspacePage
@@ -265,3 +267,97 @@ def test_workspace_console_offers_a_save_button(app, services):
 
     assert workspace.save_command_button.isEnabled()
     assert "Commands" in workspace.save_command_button.toolTip()
+
+
+# -- vendor catalog row -----------------------------------------------------
+def test_catalog_status_reports_the_builtin_library(page, services):
+    total = services.autocomplete.total()
+
+    page.refresh_catalog_status()
+
+    text = page.catalog_status.text()
+    assert str(total) in text
+    assert "built-in" in text
+    assert "No vendor feed downloaded yet" in text
+    assert "Set a vendor feed URL" in text
+
+
+def test_feed_settings_are_persisted(page, services):
+    page.feed_edit.setText("https://vendor.example/catalog.json")
+    page.auto_check.setChecked(False)
+
+    page._save_catalog_settings()
+
+    assert services.catalog_feed_url == "https://vendor.example/catalog.json"
+    assert services.catalog_auto_check is False
+
+
+def test_check_without_a_feed_explains_what_is_missing(page, services):
+    messages: list[str] = []
+    page.status_message.connect(messages.append)
+
+    page.check_for_updates()
+
+    assert "No feed configured" in page.status_label.text()
+    assert messages == []
+
+
+def test_catalog_result_reloads_the_engine(page, services):
+    write_catalog(
+        services.paths.catalog,
+        parse_catalog(
+            {
+                "schema": 1,
+                "version": "2026.10.20",
+                "vendor": "Example",
+                "environments": {
+                    "bash": [{"command": "apt list --upgradable", "summary": "pending updates"}]
+                },
+            }
+        ),
+        source="https://vendor.example/catalog.json",
+    )
+    page.feed_edit.setText("https://vendor.example/catalog.json")
+    page._save_catalog_settings()
+    messages: list[str] = []
+    page.status_message.connect(messages.append)
+
+    page._on_catalog_result(
+        CatalogUpdateResult(
+            status="updated",
+            version="2026.10.20",
+            added=1,
+            total=1,
+            message="Catalog 2026.10.20 downloaded: 1 entries, 1 new suggestion(s).",
+        )
+    )
+
+    assert any(
+        definition.name == "apt list --upgradable"
+        for definition in services.autocomplete.definitions("bash")
+    )
+    assert page.update_button.isEnabled()
+    assert "Vendor feed v2026.10.20" in page.catalog_status.text()
+    assert messages and "1 new suggestion" in messages[0]
+
+
+def test_catalog_error_does_not_change_the_engine(page, services):
+    before = services.autocomplete.total()
+    messages: list[str] = []
+    page.status_message.connect(messages.append)
+
+    page._on_catalog_result(CatalogUpdateResult(status="error", message="The catalog feed was rejected: nope"))
+
+    assert services.autocomplete.total() == before
+    assert "rejected" in page.catalog_status.text()
+    assert messages == ["The catalog feed was rejected: nope"]
+
+
+def test_catalog_worker_error_reenables_the_button(page):
+    page.update_button.setEnabled(False)
+
+    page._on_catalog_error("timed out", "TimeoutError: timed out")
+
+    assert page.update_button.isEnabled()
+    assert page.update_button.text() == "Check for updates"
+    assert "timed out" in page.catalog_status.text()

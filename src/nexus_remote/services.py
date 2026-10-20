@@ -13,6 +13,7 @@ from logging.handlers import RotatingFileHandler
 
 from nexus_remote import config
 from nexus_remote.assistant.autocomplete import CompletionEngine
+from nexus_remote.assistant.catalog import load_environment_map
 from nexus_remote.assistant.command_history import CommandHistory
 from nexus_remote.assistant.error_rules import ErrorDiagnosisEngine
 from nexus_remote.assistant.model_adapters import ModelRegistry
@@ -69,6 +70,27 @@ class AppServices:
         )
         self.policy.relay_allowed_destinations = self.relay_allowlist
 
+    # -- vendor catalog -----------------------------------------------------
+    @property
+    def catalog_feed_url(self) -> str:
+        return (self.database.get_setting("catalog.feed_url", "") or "").strip()
+
+    def save_catalog_feed_url(self, url: str) -> None:
+        self.database.set_setting("catalog.feed_url", (url or "").strip())
+
+    @property
+    def catalog_auto_check(self) -> bool:
+        return (self.database.get_setting("catalog.auto_check", "1") or "1") == "1"
+
+    def save_catalog_auto_check(self, enabled: bool) -> None:
+        self.database.set_setting("catalog.auto_check", "1" if enabled else "0")
+
+    def reload_catalog(self) -> None:
+        """Rebuild the completion engine, picking up a downloaded catalog."""
+        self.autocomplete = CompletionEngine(
+            downloaded=load_environment_map(self.paths.catalog)
+        )
+
 
 def build_services(
     paths: config.Paths | None = None,
@@ -114,7 +136,9 @@ def build_services(
         audit=audit,
         host_keys=host_keys,
         history=history,
-        autocomplete=CompletionEngine(),
+        autocomplete=CompletionEngine(
+            downloaded=load_environment_map(resolved.catalog)
+        ),
         errors=ErrorDiagnosisEngine(),
         playbooks=PlaybookLibrary(),
         snippets=SnippetStore(database),

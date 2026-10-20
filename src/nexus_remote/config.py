@@ -59,6 +59,11 @@ class Paths:
         return self.root / "known_hosts"
 
     @property
+    def catalog(self) -> Path:
+        """Downloaded vendor command catalog (absent until an update succeeds)."""
+        return self.root / "catalog.json"
+
+    @property
     def exports(self) -> Path:
         return self.root / "exports"
 

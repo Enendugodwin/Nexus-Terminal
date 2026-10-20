@@ -29,9 +29,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from nexus_remote.assistant.catalog import metadata as catalog_metadata
+from nexus_remote.assistant.catalog_update import CatalogUpdater
 from nexus_remote.assistant.snippets import Snippet
 from nexus_remote.services import AppServices
 from nexus_remote.ui.command_input import SuggestionLineEdit
+from nexus_remote.ui.tasks import run_async
 
 ENVIRONMENTS = ("bash", "powershell", "cmd", "cisco", "panos", "unknown")
 COLUMNS = ("Name", "Command", "Environment", "Risk", "Verified", "Tags", "Updated")
@@ -206,6 +209,7 @@ class CommandsPage(QWidget):
     """The command library: search, edit, and send commands to the console."""
 
     send_requested = Signal(str, str)  # command, environment
+    status_message = Signal(str)
 
     def __init__(self, services: AppServices, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -245,6 +249,27 @@ class CommandsPage(QWidget):
         toolbar.addWidget(self.copy_button)
         toolbar.addWidget(self.delete_button)
 
+        # -- vendor catalog feed --------------------------------------------
+        self.feed_edit = QLineEdit()
+        self.feed_edit.setPlaceholderText("Vendor catalog feed URL (https://…)")
+        self.feed_edit.setMinimumWidth(320)
+        self.feed_edit.setClearButtonEnabled(True)
+        self.feed_edit.setText(services.catalog_feed_url)
+        self.feed_edit.editingFinished.connect(self._save_catalog_settings)
+        self.auto_check = QCheckBox("Check at launch")
+        self.auto_check.setChecked(services.catalog_auto_check)
+        self.auto_check.toggled.connect(lambda _checked: self._save_catalog_settings())
+        self.update_button = QPushButton("Check for updates")
+        self.update_button.clicked.connect(lambda: self.check_for_updates())
+        self.catalog_status = QLabel("")
+        self.catalog_status.setObjectName("Faint")
+        self.catalog_status.setWordWrap(True)
+
+        catalog_row = QHBoxLayout()
+        catalog_row.addWidget(self.feed_edit, 2)
+        catalog_row.addWidget(self.auto_check)
+        catalog_row.addWidget(self.update_button)
+
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.verticalHeader().setVisible(False)
@@ -272,6 +297,8 @@ class CommandsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.addLayout(toolbar)
+        layout.addLayout(catalog_row)
+        layout.addWidget(self.catalog_status)
         layout.addWidget(self.table, 1)
         layout.addWidget(self.status_label)
         layout.addWidget(note)
@@ -318,6 +345,97 @@ class CommandsPage(QWidget):
                 "No saved commands yet. Press “New command”, or save the console line from the "
                 "SSH console tab."
             )
+        self.refresh_catalog_status()
+
+    # -- vendor catalog ------------------------------------------------------
+    def _save_catalog_settings(self) -> None:
+        self.services.save_catalog_feed_url(self.feed_edit.text())
+        self.services.save_catalog_auto_check(self.auto_check.isChecked())
+
+    def refresh_catalog_status(self) -> None:
+        counts = self.services.autocomplete.counts()
+        total = self.services.autocomplete.total()
+        per_environment = ", ".join(
+            f"{environment} {count}" for environment, count in counts.items()
+        )
+        metadata = catalog_metadata(self.services.paths.catalog)
+        if metadata:
+            fetched = str(metadata.get("fetched_at") or "")[:16].replace("T", " ")
+            text = (
+                f"Catalog: {total} commands ({per_environment}). Vendor feed "
+                f"v{metadata.get('version', '?')} · {metadata.get('total', 0)} entries · "
+                f"downloaded {fetched or 'previously'}."
+            )
+        else:
+            text = (
+                f"Catalog: {total} built-in commands ({per_environment}). "
+                "No vendor feed downloaded yet."
+            )
+        if not self.services.catalog_feed_url:
+            text += " Set a vendor feed URL to receive catalog updates."
+        self.catalog_status.setText(text)
+
+    def check_for_updates(self, silent: bool = False) -> None:
+        """Fetch the vendor catalog in the background and apply it if valid."""
+        self._save_catalog_settings()
+        feed_url = self.services.catalog_feed_url
+        if not feed_url:
+            self.refresh_catalog_status()
+            if not silent:
+                self.status_label.setText(
+                    "No feed configured: paste the vendor's https:// catalog URL first."
+                )
+            return
+        self.update_button.setEnabled(False)
+        self.update_button.setText("Checking…")
+        self.catalog_status.setText("Checking the vendor catalog feed…")
+        updater = CatalogUpdater(self.services.paths.catalog)
+        run_async(
+            updater.update,
+            feed_url,
+            on_result=self._on_catalog_result,
+            on_error=self._on_catalog_error,
+        )
+
+    def _on_catalog_result(self, result) -> None:
+        self.update_button.setEnabled(True)
+        self.update_button.setText("Check for updates")
+        if result.status == "updated":
+            self.services.reload_catalog()
+            self.services.audit.record(
+                "catalog",
+                "catalog.updated",
+                severity="info",
+                outcome="success",
+                detail={
+                    "version": result.version,
+                    "entries": result.total,
+                    "added": result.added,
+                    "feed": self.services.catalog_feed_url,
+                },
+            )
+            self.refresh()
+            self.status_label.setText(result.message)
+        elif result.status == "error":
+            self.services.audit.record(
+                "catalog",
+                "catalog.update_failed",
+                severity="warning",
+                outcome="failure",
+                detail={"message": result.message, "feed": self.services.catalog_feed_url},
+            )
+            self.catalog_status.setText(result.message)
+        else:
+            self.refresh_catalog_status()
+            if result.message:
+                self.catalog_status.setText(result.message)
+        self.status_message.emit(result.message)
+
+    def _on_catalog_error(self, message: str, _detail: str) -> None:
+        self.update_button.setEnabled(True)
+        self.update_button.setText("Check for updates")
+        self.catalog_status.setText(f"Catalog update failed: {message}")
+        self.status_message.emit(f"Catalog update failed: {message}")
 
     def _selected_snippet(self) -> Snippet | None:
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []

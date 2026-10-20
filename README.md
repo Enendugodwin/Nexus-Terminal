@@ -27,6 +27,11 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
   policy's risk classification. Send a command to the SSH console (it is never
   executed from the library) or save the console line straight from the console
   tab; the policy gate runs when you press Run.
+- **Command catalog with vendor updates** - ~390 curated commands for bash,
+  PowerShell, cmd, Cisco IOS and PAN-OS are available offline. A vendor JSON
+  feed can add more over HTTPS: validated first, merged without overriding
+  built-ins, labelled *Catalog (downloaded)* and checked quietly at launch or on
+  demand (see [docs/catalog-feed.md](docs/catalog-feed.md)).
 - **Diagnostics** - DNS, TCP handshake, protocol banner, local route lookup,
   interface/VPN detection and ICMP (with honest caveats about what each result
   proves).
@@ -107,6 +112,7 @@ src/nexus_remote/
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Command catalog feed](docs/catalog-feed.md)
 - [Threat model](docs/threat-model.md)
 - [Security guide](docs/security.md)
 - [Deployment and packaging](docs/deployment.md)

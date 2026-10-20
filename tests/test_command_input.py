@@ -208,9 +208,15 @@ def test_console_navigation_wraps_and_previews(app, services):
     workspace.console_input.setCursorPosition(2)
     workspace._update_completions("df")
     total = workspace.completion_list.count()
+    assert total >= 2
 
+    # The first press highlights the first candidate, so after ``total`` presses
+    # the last one is highlighted; the next press wraps to the top.
     for _ in range(total):
         workspace._navigate_completions(1)
+    assert workspace.completion_list.currentRow() == total - 1
+
+    workspace._navigate_completions(1)
     assert workspace.completion_list.currentRow() == 0
 
     workspace._navigate_completions(-1)

@@ -155,6 +155,7 @@ class MainWindow(QMainWindow):
         self.workspace.diagnostic_requested.connect(self._show_diagnostics)
         self.workspace.status_message.connect(self._set_status)
         self.commands.send_requested.connect(self._send_command)
+        self.commands.status_message.connect(self._set_status)
         self.nav.currentRowChanged.connect(self._refresh_current)
 
         self._timer = QTimer(self)
@@ -163,6 +164,11 @@ class MainWindow(QMainWindow):
         self._timer.start()
         self._refresh_status()
         self._switch_page(0)
+
+        # Vendor catalog updates are checked quietly after the window is up:
+        # being offline is normal and must never block startup.
+        if self.services.catalog_auto_check and self.services.catalog_feed_url:
+            QTimer.singleShot(4000, lambda: self.commands.check_for_updates(silent=True))
 
     # -- navigation ---------------------------------------------------------
     def _switch_page(self, index: int) -> None:

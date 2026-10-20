@@ -86,6 +86,31 @@ the same dialog prefilled with the typed line, so the library is also reachable
 where commands are written. Snippets saved from the assistant or from history
 appear in both places because they share one store.
 
+### Command catalog and vendor feed
+The completion engine starts from `assistant/builtin_catalog.py`: roughly 390
+curated commands across bash, PowerShell, cmd, Cisco IOS and PAN-OS. This file
+is data only and ships inside the application, so an offline install still has
+the full baseline.
+
+A vendor feed adds commands at runtime. `assistant/catalog.py` validates the
+JSON (schema 1, known environments, single-line commands, count/size limits) and
+`assistant/catalog_update.py` fetches it over HTTPS with ETag caching and a hard
+response-size cap. Accepted documents are written to
+`<data>/catalog.json` through a temporary file plus `os.replace`, so a crash
+cannot leave a half-written catalog. Invalid documents reject the whole update
+and leave the previous file untouched.
+
+`CompletionEngine` merges downloaded entries *after* the bundled ones: bundled
+names always win, and downloaded entries carry `SuggestionSource.CATALOG`
+("Catalog (downloaded)") rather than `VERIFIED`. This is deliberate — the feed
+is remote input and must not gain the trust of a shipped entry, let alone
+execute anything. Updates are audited (`catalog.updated`,
+`catalog.update_failed`); the Commands page performs them in a worker thread and
+swaps the engine via `AppServices.reload_catalog()`. When `catalog.auto_check`
+is enabled and a feed URL is configured, `MainWindow` schedules one quiet check
+four seconds after startup; being offline is a normal, silent outcome. See
+[docs/catalog-feed.md](catalog-feed.md) for the feed format.
+
 ### Assistant
 
 The assistant lives beside the open terminal (Terminal tab, right-hand pane)

@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable, Sequence
 
+from nexus_remote.assistant.builtin_catalog import CATALOG as _CATALOG
+
 #: Environments the engine understands.
 ENVIRONMENTS = ("bash", "powershell", "cmd", "cisco", "panos", "unknown")
 
@@ -41,6 +43,7 @@ class SuggestionSource(str, Enum):
     DOCUMENTATION = "documentation"
     INFERRED = "inferred"
     AI_GENERATED = "ai-generated"
+    CATALOG = "catalog"
 
     @property
     def label(self) -> str:
@@ -50,6 +53,7 @@ class SuggestionSource(str, Enum):
             SuggestionSource.DOCUMENTATION: "Documentation",
             SuggestionSource.INFERRED: "Inferred",
             SuggestionSource.AI_GENERATED: "AI-generated (unverified)",
+            SuggestionSource.CATALOG: "Catalog (downloaded)",
         }[self]
 
     @property
@@ -103,124 +107,14 @@ def environment_for_os(operating_system: str | None) -> str:
     return "unknown"
 
 
-#: Curated command catalog. Entries are environment-specific on purpose.
-_CATALOG: dict[str, list[tuple[str, str]]] = {
-    "bash": [
-        ("ls -la", "list all files with details"),
-        ("cd ", "change directory"),
-        ("pwd", "print working directory"),
-        ("cat ", "show file contents"),
-        ("tail -f ", "follow a log file"),
-        ("grep -r ", "search recursively"),
-        ("df -h", "filesystem usage"),
-        ("du -sh *", "directory sizes"),
-        ("free -m", "memory usage"),
-        ("ps aux", "running processes"),
-        ("top", "live process view"),
-        ("ss -tulpn", "listening sockets"),
-        ("ip addr", "interface addresses"),
-        ("ip route", "routing table"),
-        ("systemctl status ", "service status"),
-        ("journalctl -u ", "service logs"),
-        ("uname -a", "kernel information"),
-        ("whoami", "current user"),
-        ("id", "user and group ids"),
-        ("sudo -l", "list permitted sudo commands"),
-        ("uptime", "system load and uptime"),
-        ("history", "shell history"),
-        ("tar -czf ", "create a gzip archive"),
-        ("scp ", "copy files over SSH"),
-        ("ping -c 4 ", "ICMP reachability"),
-        ("dig +short ", "DNS lookup"),
-        ("traceroute ", "path discovery"),
-        ("nproc", "cpu count"),
-        ("mount | column -t", "mounted filesystems"),
-        ("lsblk", "block devices"),
-    ],
-    "powershell": [
-        ("Get-Help ", "show help for a command"),
-        ("Get-Process", "running processes"),
-        ("Get-Service", "service inventory"),
-        ("Get-ChildItem", "list directory contents"),
-        ("Get-Content ", "read a file"),
-        ("Set-Location ", "change directory"),
-        ("Test-NetConnection -ComputerName ", "test TCP reachability"),
-        ("Resolve-DnsName ", "DNS lookup"),
-        ("Get-NetIPConfiguration", "IP configuration"),
-        ("Get-NetRoute", "routing table"),
-        ("Get-EventLog -LogName System -Newest 50", "recent system events"),
-        ("Get-CimInstance Win32_OperatingSystem", "OS details"),
-        ("Get-LocalUser", "local accounts"),
-        ("Get-SmbShare", "SMB shares"),
-        ("Get-Volume", "disk volumes"),
-        ("Get-ComputerInfo", "system inventory"),
-        ("Invoke-Command -Session ", "run a command in a session"),
-        ("Enter-PSSession -ComputerName ", "interactive remote session"),
-        ("Copy-Item -ToSession ", "copy files to a session"),
-        ("Restart-Service ", "restart a service"),
-        ("Stop-Process -Id ", "stop a process"),
-        ("Get-WinEvent -LogName Security -MaxEvents 20", "recent security events"),
-    ],
-    "cmd": [
-        ("dir", "list directory contents"),
-        ("cd /d ", "change drive and directory"),
-        ("type ", "show file contents"),
-        ("ipconfig /all", "full IP configuration"),
-        ("route print", "routing table"),
-        ("netstat -ano", "connections with process ids"),
-        ("nslookup ", "DNS lookup"),
-        ("ping -n 4 ", "ICMP reachability"),
-        ("tracert ", "path discovery"),
-        ("systeminfo", "system inventory"),
-        ("tasklist", "running processes"),
-        ("whoami /all", "current user and groups"),
-        ("net use", "mapped network drives"),
-        ("net view \\\\", "list SMB shares"),
-        ("gpresult /r", "applied group policy"),
-        ("sfc /scannow", "system file check"),
-        ("shutdown /r /t 0", "restart the machine"),
-    ],
-    "cisco": [
-        ("show version", "IOS version and uptime"),
-        ("show running-config", "active configuration"),
-        ("show interfaces status", "interface state"),
-        ("show ip interface brief", "interface addresses"),
-        ("show ip route", "routing table"),
-        ("show vlan brief", "VLAN membership"),
-        ("show mac address-table", "MAC forwarding table"),
-        ("show cdp neighbors detail", "connected Cisco devices"),
-        ("show logging", "device log"),
-        ("show processes cpu sorted", "cpu usage"),
-        ("show environment all", "power and temperature"),
-        ("show ip arp", "ARP cache"),
-        ("show ntp status", "time synchronisation"),
-        ("ping ", "ICMP reachability"),
-        ("traceroute ", "path discovery"),
-        ("terminal length 0", "disable paging"),
-    ],
-    "panos": [
-        ("show system info", "device information"),
-        ("show interface all", "interface overview"),
-        ("show routing route", "routing table"),
-        ("show session all", "session table"),
-        ("show counter global", "global counters"),
-        ("show jobs all", "recent jobs"),
-        ("show admins", "administrator accounts"),
-        ("show config running", "running configuration"),
-        ("show log system last 20", "recent system log"),
-        ("show log traffic direction eq inbound", "recent inbound sessions"),
-        ("show system resources", "cpu and memory"),
-        ("test routing fib-lookup virtual-router default ip ", "route lookup"),
-        ("ping host ", "ICMP reachability"),
-        ("traceroute host ", "path discovery"),
-    ],
-}
-
-
 class CompletionEngine:
     """Produces ranked, provenance-labelled suggestions within milliseconds."""
 
-    def __init__(self, catalog: dict[str, Sequence[tuple[str, str]]] | None = None) -> None:
+    def __init__(
+        self,
+        catalog: dict[str, Sequence[tuple[str, str]]] | None = None,
+        downloaded: dict[str, Sequence[tuple[str, str]]] | None = None,
+    ) -> None:
         source = catalog if catalog is not None else _CATALOG
         self._definitions: dict[str, list[CommandDefinition]] = {
             environment: [
@@ -229,6 +123,24 @@ class CompletionEngine:
             ]
             for environment, entries in source.items()
         }
+        # A downloaded vendor catalog may only add names the shipped catalog
+        # does not already define. It is labelled as downloaded so it can never
+        # masquerade as a verified built-in entry.
+        for environment, entries in (downloaded or {}).items():
+            existing = self._definitions.setdefault(environment, [])
+            known = {definition.name.casefold() for definition in existing}
+            for name, summary in entries:
+                if name.casefold() in known:
+                    continue
+                known.add(name.casefold())
+                existing.append(
+                    CommandDefinition(
+                        name=name,
+                        environment=environment,
+                        summary=summary,
+                        source=SuggestionSource.CATALOG,
+                    )
+                )
 
     # -- queries ------------------------------------------------------------
     def environments(self) -> list[str]:
@@ -236,6 +148,16 @@ class CompletionEngine:
 
     def definitions(self, environment: str) -> list[CommandDefinition]:
         return list(self._definitions.get(normalize_environment(environment), []))
+
+    def counts(self) -> dict[str, int]:
+        """Number of known commands per environment (bundled and downloaded)."""
+        return {
+            environment: len(definitions)
+            for environment, definitions in sorted(self._definitions.items())
+        }
+
+    def total(self) -> int:
+        return sum(len(definitions) for definitions in self._definitions.values())
 
     def suggest(
         self,
