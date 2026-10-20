@@ -528,22 +528,12 @@ class WorkspacePage(QWidget):
         self.system_info = SystemInfoPanel()
         self.system_info.refresh_requested.connect(self._refresh_system_info)
 
-        note = QLabel(
-            "A real terminal: escape sequences, colours, full-screen programs (top, vim, less) and PTY "
-            "resizing are handled locally. Keystrokes go straight to the remote shell, so the policy gate "
-            "for one-off commands lives in the SSH console tab. Copy with Ctrl+Shift+C, paste with "
-            "Ctrl+Shift+V; the mouse wheel scrolls back and End returns to the prompt."
-        )
-        note.setObjectName("Faint")
-        note.setWordWrap(True)
-
         terminal_column = QWidget()
         terminal_layout = QVBoxLayout(terminal_column)
         terminal_layout.setContentsMargins(0, 0, 0, 0)
         terminal_layout.addWidget(self.terminal_view, 1)
         terminal_layout.addWidget(self.system_info)
         terminal_layout.addWidget(self.terminal_status)
-        terminal_layout.addWidget(note)
 
         self.assistant_panel = AssistantPanel(self.services, compact=True)
         self.assistant_panel.send_shell_requested.connect(self._send_to_open_shell)
