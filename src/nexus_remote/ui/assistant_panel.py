@@ -6,8 +6,9 @@ page says so plainly and the deterministic features stay fully usable.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QHeaderView,
@@ -40,6 +41,9 @@ class AssistantPanel(QWidget):
     a vertical layout and trims secondary columns so it stays readable at
     roughly one third of the window width.
     """
+
+    send_shell_requested = Signal(str)  # command to insert into the open shell
+    status_message = Signal(str)
 
     def __init__(
         self,
@@ -102,6 +106,17 @@ class AssistantPanel(QWidget):
         self.prefix_edit.accepted.connect(lambda _text: self.suggestion_list.setCurrentRow(-1))
         self.prefix_edit.navigate.connect(self._navigate_suggestions)
         self.prefix_edit.returnPressed.connect(self._accept_suggestion)
+        self.prefix_edit.textChanged.connect(self._update_prefix_actions)
+
+        self.send_shell_button = QPushButton("Send" if self.compact else "Send to shell")
+        self.send_shell_button.setToolTip(
+            "Insert the command into the open interactive shell without pressing Enter."
+        )
+        self.send_shell_button.clicked.connect(self.send_to_shell)
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setToolTip("Copy the command to the clipboard.")
+        self.copy_button.clicked.connect(self.copy_prefix)
+        self._update_prefix_actions("")
 
         self.suggestion_list = QListWidget()
         self.suggestion_list.setMinimumHeight(200 if self.compact else 240)
@@ -133,7 +148,13 @@ class AssistantPanel(QWidget):
         left_layout.addWidget(QLabel("Environment"))
         left_layout.addWidget(self.environment_combo)
         left_layout.addWidget(QLabel("Prefix"))
-        left_layout.addWidget(self.prefix_edit)
+        prefix_row = QHBoxLayout()
+        prefix_row.setContentsMargins(0, 0, 0, 0)
+        prefix_row.setSpacing(4)
+        prefix_row.addWidget(self.prefix_edit, 1)
+        prefix_row.addWidget(self.send_shell_button)
+        prefix_row.addWidget(self.copy_button)
+        left_layout.addLayout(prefix_row)
         left_layout.addWidget(self.suggestion_list, 1)
         left_layout.addWidget(self.explanation_view)
         left_layout.addWidget(save_snippet)
@@ -210,6 +231,26 @@ class AssistantPanel(QWidget):
         self.prefix_edit.setCursorPosition(len(self.prefix_edit.text()))
         self.prefix_edit.clear_suggestion()
         self.suggestion_list.setCurrentRow(-1)
+
+    def _update_prefix_actions(self, text: str) -> None:
+        enabled = bool((text or "").strip())
+        self.send_shell_button.setEnabled(enabled)
+        self.copy_button.setEnabled(enabled)
+
+    def send_to_shell(self) -> None:
+        """Hand the typed command to the open shell (typed, never executed)."""
+        command = self.prefix_edit.text().strip()
+        if not command:
+            return
+        self.status_message.emit("Command inserted into the open shell - press Enter there to run it.")
+        self.send_shell_requested.emit(command)
+
+    def copy_prefix(self) -> None:
+        command = self.prefix_edit.text().strip()
+        if not command:
+            return
+        QApplication.clipboard().setText(command)
+        self.status_message.emit("Command copied to the clipboard.")
 
     def _explain_selected(self, item: QListWidgetItem) -> None:
         command = str(item.data(Qt.ItemDataRole.UserRole))

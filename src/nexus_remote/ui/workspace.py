@@ -540,6 +540,8 @@ class WorkspacePage(QWidget):
         terminal_layout.addWidget(note)
 
         self.assistant_panel = AssistantPanel(self.services, compact=True)
+        self.assistant_panel.send_shell_requested.connect(self._send_to_open_shell)
+        self.assistant_panel.status_message.connect(self.status_message)
         self.terminal_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.terminal_splitter.setChildrenCollapsible(False)
         self.terminal_splitter.addWidget(terminal_column)
@@ -570,6 +572,28 @@ class WorkspacePage(QWidget):
         self.tabs.setCurrentWidget(self.terminal_page)
         self.assistant_toggle.setChecked(True)
         self.assistant_panel.show()
+
+    def _send_to_open_shell(self, command: str) -> None:
+        """Type an assistant command into the live shell; never press Enter.
+
+        If no shell is attached the command goes to the SSH console instead, so
+        the button is never a dead end - and in both cases the operator runs it.
+        """
+        command = (command or "").strip()
+        if not command:
+            return
+        if self.terminal_view.is_attached():
+            self.tabs.setCurrentWidget(self.terminal_page)
+            self.terminal_view.paste(command)
+            self.terminal_view.setFocus()
+            self.status_message.emit(
+                "Command inserted into the open shell - review it, then press Enter to run it."
+            )
+        else:
+            self.load_command(command, self._current_environment())
+            self.status_message.emit(
+                "No shell is attached: the command was loaded into the SSH console instead."
+            )
 
     def terminal_view_detach(self) -> None:
         self.terminal_view.detach()

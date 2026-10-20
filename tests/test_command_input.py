@@ -284,3 +284,99 @@ def test_prefix_box_enter_takes_the_highlighted_suggestion(app, services):
 
     assert panel.prefix_edit.text() == highlighted
     assert panel.suggestion_list.currentRow() == -1
+
+
+# -- prefix actions ---------------------------------------------------------
+def test_prefix_actions_are_disabled_until_something_is_typed(app, services):
+    panel = AssistantPanel(services)
+
+    assert panel.send_shell_button.isEnabled() is False
+    assert panel.copy_button.isEnabled() is False
+
+    panel.prefix_edit.setText("df -h")
+
+    assert panel.send_shell_button.isEnabled() is True
+    assert panel.copy_button.isEnabled() is True
+
+
+def test_prefix_copy_puts_the_command_on_the_clipboard(app, services):
+    panel = AssistantPanel(services)
+    messages: list[str] = []
+    panel.status_message.connect(messages.append)
+    panel.prefix_edit.setText("  df -h  ")
+
+    panel.copy_prefix()
+
+    assert QApplication.clipboard().text() == "df -h"
+    assert messages == ["Command copied to the clipboard."]
+
+
+def test_prefix_send_emits_the_command_without_running_it(app, services):
+    panel = AssistantPanel(services)
+    sent: list[str] = []
+    panel.send_shell_requested.connect(sent.append)
+    panel.prefix_edit.setText("uptime")
+
+    panel.send_to_shell()
+
+    assert sent == ["uptime"]
+    assert services.history.recent() == []
+
+
+def test_empty_prefix_actions_are_no_ops(app, services):
+    panel = AssistantPanel(services)
+    sent: list[str] = []
+    panel.send_shell_requested.connect(sent.append)
+
+    panel.send_to_shell()
+    panel.copy_prefix()
+
+    assert sent == []
+
+
+class _FakeShell:
+    """Minimal write/read/resize channel for the terminal view."""
+
+    def __init__(self) -> None:
+        self.written: list[bytes] = []
+
+    def write(self, data) -> None:  # noqa: ANN001 - mirrors paramiko
+        self.written.append(data if isinstance(data, bytes) else data.encode())
+
+    def read(self, timeout: float = 0.0, max_bytes: int = 65536) -> bytes:
+        return b""
+
+    def resize(self, rows: int, columns: int) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+def test_send_to_open_shell_types_without_pressing_enter(app, services):
+    workspace = WorkspacePage(services)
+    shell = _FakeShell()
+    workspace.terminal_view.attach(shell, session_id="session-1", label="fake")
+    messages: list[str] = []
+    workspace.status_message.connect(messages.append)
+
+    workspace._send_to_open_shell("systemctl status nginx")
+
+    written = b"".join(shell.written).decode()
+    assert written == "systemctl status nginx"
+    assert "\r" not in written and "\n" not in written
+    assert workspace.tabs.currentWidget() is workspace.terminal_page
+    assert messages and "press Enter" in messages[0]
+    workspace.terminal_view.detach()
+
+
+def test_send_without_a_shell_falls_back_to_the_console(app, services):
+    workspace = WorkspacePage(services)
+    messages: list[str] = []
+    workspace.status_message.connect(messages.append)
+
+    workspace._send_to_open_shell("uptime")
+
+    assert workspace.tabs.currentWidget() is workspace.console_page
+    assert workspace.console_input.text() == "uptime"
+    assert messages and "SSH console instead" in messages[0]

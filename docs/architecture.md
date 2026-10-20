@@ -130,6 +130,12 @@ adapters are optional; their suggestions carry the `AI-generated (unverified)`
 label, rank below verified/history entries, and are never executed
 automatically.
 
+Two buttons sit beside the Prefix box. **Send to shell** pastes the command into
+the attached interactive terminal without a newline, so the operator still
+presses Enter; with no shell attached it falls back to loading the SSH console
+input. **Copy** writes the command to the clipboard. Both are disabled while the
+box is empty, and neither can execute anything by itself.
+
 ## Data model (SQLite)
 
 Forward-only migrations tracked by `PRAGMA user_version`:
