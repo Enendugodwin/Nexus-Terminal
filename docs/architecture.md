@@ -135,6 +135,37 @@ is enabled and a feed URL is configured, `MainWindow` schedules one quiet check
 four seconds after startup; being offline is a normal, silent outcome. See
 [docs/catalog-feed.md](catalog-feed.md) for the feed format.
 
+### Themes and appearance
+`ui/theme.py` declares four palettes (Matrix, Midnight, Ember, Daylight) as
+token dictionaries: surfaces, borders, text, accent, semantic colours, terminal
+background/foreground and a readable ANSI map. `TOKENS` is a single mutable
+mapping imported by widgets, so `set_theme()` can swap the active palette
+without rebuilding pages. `apply_theme()` sets the Fusion style, a matching
+`QPalette` and the generated stylesheet on the `QApplication`.
+
+The Settings page exposes the choice; `MainWindow._apply_theme()` applies it
+immediately, repaints the current page and stores `ui.theme` in the settings
+table. `main.py` applies the stored theme before constructing the window, so
+there is no flash of the default palette. Custom-painted widgets (the terminal,
+ghost-text completion) read the active tokens at paint time; table colour maps
+are computed on use rather than at import.
+
+The window/taskbar icon comes from `resources/nexus.ico` (generated from
+`packaging/icon.svg` by `packaging/make_icon.py`). Windows receives an explicit
+`AppUserModelID` (`resources.set_windows_app_id`) so the taskbar uses the app
+icon and groups windows correctly.
+
+### Application updates
+`updates.py` implements an optional update channel separate from the command
+catalog. A configured HTTPS manifest names a newer version, a `.exe` installer,
+its size and SHA-256. Checks are bounded (128 KB manifest, 15 s timeout) and
+never raise: offline, HTTP and schema failures become result objects. The update
+is only downloaded after confirmation, capped at 300 MB, hashed while streaming
+and rejected unless size and hash match. A verified installer is handed to
+Windows via `os.startfile`; the app then quits so Inno Setup can replace files.
+Automatic checks merely add a status-bar hint. See
+[docs/updates.md](updates.md).
+
 ### Assistant
 
 The assistant lives beside the open terminal (Terminal tab, right-hand pane)

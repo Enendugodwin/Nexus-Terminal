@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from nexus_remote.connections.interfaces import SessionState
 from nexus_remote.services import AppServices
 from nexus_remote.ui.theme import TOKENS
 

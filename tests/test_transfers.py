@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from nexus_remote.connections.interfaces import ProtocolError
-from nexus_remote.protocols.sftp import SFTPSession, TransferCancelled
+from nexus_remote.protocols.sftp import SFTPSession
 
 
 class FakeSFTPFile(io.BytesIO):

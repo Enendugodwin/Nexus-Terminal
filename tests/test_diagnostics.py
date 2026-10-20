@@ -5,11 +5,10 @@ from __future__ import annotations
 import socket
 import threading
 
-import pytest
 
 from nexus_remote.diagnostics import dns, routing, tcp
 from nexus_remote.diagnostics.reports import DiagnosticsRunner
-from nexus_remote.diagnostics.types import STATUS_FAILED, STATUS_OK, STATUS_SKIPPED
+from nexus_remote.diagnostics.types import STATUS_OK, STATUS_SKIPPED
 
 ROUTE_PRINT = """
 ===========================================================================

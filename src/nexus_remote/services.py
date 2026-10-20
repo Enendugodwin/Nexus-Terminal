@@ -8,6 +8,7 @@ and the connection layer are joined together.
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
@@ -91,6 +92,21 @@ class AppServices:
             downloaded=load_environment_map(self.paths.catalog)
         )
 
+    # -- application updates -------------------------------------------------
+    @property
+    def update_feed_url(self) -> str:
+        return (self.database.get_setting("update.feed_url", "") or "").strip()
+
+    def save_update_feed_url(self, url: str) -> None:
+        self.database.set_setting("update.feed_url", (url or "").strip())
+
+    @property
+    def update_auto_check(self) -> bool:
+        return (self.database.get_setting("update.auto_check", "1") or "1") == "1"
+
+    def save_update_auto_check(self, enabled: bool) -> None:
+        self.database.set_setting("update.auto_check", "1" if enabled else "0")
+
 
 def build_services(
     paths: config.Paths | None = None,
@@ -165,7 +181,7 @@ def configure_logging(paths: config.Paths | None = None, *, level: int = logging
     if not any(
         isinstance(handler, logging.StreamHandler) and not isinstance(handler, RotatingFileHandler)
         for handler in root.handlers
-    ):
+    ) and sys.stderr is not None:
         stream = logging.StreamHandler()
         stream.setFormatter(logging.Formatter(LOG_FORMAT))
         stream.addFilter(RedactingFilter())

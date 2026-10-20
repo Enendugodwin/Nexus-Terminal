@@ -48,6 +48,8 @@ for this phase; their interfaces are reserved but not deployed.
 | Local attacker as the same user | Full compromise | Out of scope for app-level controls: Windows DPAPI/ACL protects the vault and data directory. Use a locked workstation and separate accounts. |
 | Database tampering | Misleading inventory/audit | SQLite has no signatures. Restrict NTFS permissions on `%LOCALAPPDATA%\NexusRemote`; export/verify audit logs to a protected location if needed. |
 | Supply-chain compromise | Arbitrary code | Dependencies are pinned by lower bounds; build from a reviewed lock/venv and sign the executable. PyInstaller bundles increase the attack surface. |
+| Malicious update feed | Arbitrary code | HTTPS only, strict schema and size bounds. Installers are downloaded only after consent and must match the manifest's SHA-256 and size; nothing auto-installs. |
+| Tampered update download | Arbitrary code | Streamed hash verification with a mandatory digest; partial or mismatched files are deleted before they can be executed. Sign release builds for publisher identity. |
 | Denial of service by remote output floods | UI freeze | Reads are bounded per timer tick; scrollback is capped; the UI remains responsive. |
 | Network scanning / unintended egress | Policy violation | The app only connects to inventory entries and hosts typed into diagnostics. There is no discovery sweep in this phase. |
 

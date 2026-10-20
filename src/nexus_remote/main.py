@@ -28,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="initialise storage and print an inventory summary without starting the GUI",
     )
+    parser.add_argument(
+        "--check-updates",
+        action="store_true",
+        help="check the configured update feed and exit (no GUI)",
+    )
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser
 
@@ -73,16 +78,33 @@ def main(argv: list[str] | None = None) -> int:
         services.close()
         return 0
 
+    if args.check_updates:
+        from nexus_remote.updates import UpdateChecker
+
+        result = UpdateChecker(services.update_feed_url).check()
+        print(result.message)
+        if result.info is not None:
+            print(f"version        : {result.info.version}")
+            print(f"installer      : {result.info.url}")
+            print(f"sha256         : {result.info.sha256}")
+            if result.info.notes:
+                print(f"notes          : {result.info.notes}")
+        services.close()
+        return 0 if result.status in {"available", "current", "not-configured"} else 1
+
     from PySide6.QtWidgets import QApplication, QMessageBox
 
+    from nexus_remote.resources import application_icon, set_windows_app_id
     from nexus_remote.ui.main_window import MainWindow
     from nexus_remote.ui.theme import apply_theme
 
+    set_windows_app_id()
     application = QApplication(sys.argv[:1])
     application.setApplicationName(config.APP_NAME)
     application.setOrganizationName(config.ORG_NAME)
     application.setApplicationVersion(config.APP_VERSION)
-    apply_theme(application)
+    application.setWindowIcon(application_icon())
+    apply_theme(application, services.database.get_setting("ui.theme", "matrix"))
 
     def handle_exception(exc_type, exc_value, exc_traceback) -> None:
         if issubclass(exc_type, KeyboardInterrupt):  # pragma: no cover

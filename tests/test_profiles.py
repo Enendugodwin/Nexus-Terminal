@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from nexus_remote.devices import profiles
-from nexus_remote.devices.models import Device, ProfileError, ProtocolConfig
+from nexus_remote.devices.models import ProfileError
 
 
 def test_export_and_reload_roundtrip(repository, device, tmp_path):

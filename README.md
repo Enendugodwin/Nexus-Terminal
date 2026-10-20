@@ -6,12 +6,13 @@ FreeRDP desktop, device inventory, diagnostics and a deterministic assistant.
 Everything that matters works offline; no AI model is required to connect,
 diagnose or run a playbook.
 
-> **Status: early MVP (0.1.0).** SSH (password, SSH agent or private key), SFTP,
-> serial consoles, interactive terminal emulation and SMB browsing are
-> implemented. RDP is performed by the application itself through the FreeRDP
-> client, embedded in the workspace window (`mstsc.exe` is not used). SMB needs
-> the optional `smbprotocol` extra and is SMB 2/3 only. Cloud discovery, NAT
-> traversal and remote agents are deliberately deferred.
+> **Status: MVP 0.2.0.** SSH (password, SSH agent or private key), SFTP,
+> serial consoles, interactive terminal emulation, SMB browsing, four themes,
+> a Windows installer and a signed-manifest update channel are implemented. RDP
+> is performed by the application itself through the FreeRDP client, embedded in
+> the workspace window (`mstsc.exe` is not used). SMB needs the optional
+> `smbprotocol` extra and is SMB 2/3 only. Cloud discovery, NAT traversal and
+> remote agents are deliberately deferred.
 
 ## Highlights
 
@@ -49,6 +50,18 @@ diagnose or run a playbook.
 - **Diagnostics** - DNS, TCP handshake, protocol banner, local route lookup,
   interface/VPN detection and ICMP (with honest caveats about what each result
   proves).
+- **Four bundled themes** - Matrix (green), Midnight (blue), Ember (amber) and
+  Daylight (light). Switch live in **Settings > Appearance**; the choice is
+  stored in the local database and applied before the first window is shown.
+  Terminal ANSI colours have a dedicated readable palette per theme.
+- **Installable desktop app** - a real Windows setup executable with a Start
+  Menu entry, optional desktop shortcut, uninstaller and per-user install under
+  `%LOCALAPPDATA%\Programs\Nexus Remote` (no administrator rights). The app
+  carries its own multi-resolution icon and version metadata.
+- **Verified application updates** - opt in by setting an HTTPS update-manifest
+  URL in **Settings > Updates**. Checks are bounded, the installer is downloaded
+  only after consent and must match the SHA-256 in the manifest; nothing is ever
+  installed silently (see [docs/updates.md](docs/updates.md)).
 - **Deterministic assistant** - offline autocomplete with provenance labels,
   history, snippets, playbooks and rule-based error diagnosis. The best match is
   previewed inline (ghost text) while you type: Tab or → completes it, ↑ ↓ browse
@@ -76,6 +89,23 @@ diagnose or run a playbook.
   feature is affected.
 
 ## Install and run
+
+### Packaged Windows app
+
+Run `NexusRemoteSetup-0.2.0.exe` from `dist\` (or the copy published by your
+team). It installs per user, needs no administrator rights and leaves existing
+data in place during upgrades. Start **Nexus Remote** from the Start Menu.
+
+Silent deployment for IT:
+
+```powershell
+.\NexusRemoteSetup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+```
+
+Uninstall through **Settings > Apps > Installed apps**; user data in
+`%LOCALAPPDATA%\NexusRemote` is intentionally kept.
+
+### From source
 
 ```powershell
 python -m venv .venv
@@ -108,8 +138,8 @@ $env:PYTHONPATH = "src"
 
 The suite covers storage/migrations, device models and repository, credential
 references, host keys, redaction, policy, routing, sessions, transfers,
-diagnostics, autocomplete/history/snippets, error rules, the terminal buffer
-and the terminal widget (offscreen Qt).
+diagnostics, autocomplete/history/snippets, error rules, the terminal buffer,
+the terminal widget (offscreen Qt), theme switching and the update feed.
 
 ## Project layout
 
@@ -118,6 +148,9 @@ src/nexus_remote/
   config.py            paths and constants
   services.py          single wiring point for the whole app
   main.py              CLI and GUI bootstrap
+  updates.py           update manifest check, verified download, installer hand-off
+  resources.py         bundled icon lookup and Windows app identity
+  resources/           multi-resolution icon and PNG mark
   storage/             SQLite connection, migrations, FTS5 fallback
   devices/             models, repository, YAML profiles
   security/            redaction, vault, audit, known_hosts, policy
@@ -132,6 +165,7 @@ src/nexus_remote/
 
 - [Architecture](docs/architecture.md)
 - [Command catalog feed](docs/catalog-feed.md)
+- [Update feed and release process](docs/updates.md)
 - [Threat model](docs/threat-model.md)
 - [Security guide](docs/security.md)
 - [Deployment and packaging](docs/deployment.md)

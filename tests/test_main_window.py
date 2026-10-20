@@ -75,3 +75,20 @@ def test_workspace_menu_actions_navigate(app, services):
     assert window.workspace.tabs.currentWidget() is window.workspace.terminal_page
     assert window.workspace.assistant_panel.isVisible()
     window.close()
+
+
+def test_theme_selection_applies_live_and_persists(app, services):
+    from nexus_remote.ui.theme import apply_theme
+
+    window = _window(services)
+    index = window.settings.theme_combo.findData("daylight")
+    assert index >= 0
+
+    window.settings.theme_combo.setCurrentIndex(index)
+
+    assert services.database.get_setting("ui.theme") == "daylight"
+    assert "#f4f7f2" in app.styleSheet()
+    assert window.windowIcon().isNull() is False
+
+    apply_theme(app, "matrix")
+    window.close()

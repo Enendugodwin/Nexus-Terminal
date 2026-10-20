@@ -27,12 +27,14 @@ from nexus_remote.services import AppServices
 from nexus_remote.ui.tasks import Worker, connect_worker
 from nexus_remote.ui.theme import TOKENS
 
-RESULT_COLOURS = {
-    "ok": TOKENS["ok"],
-    "failed": TOKENS["danger"],
-    "partial": TOKENS["warn"],
-    "skipped": TOKENS["text_muted"],
-}
+
+def _result_colours() -> dict[str, str]:
+    return {
+        "ok": TOKENS["ok"],
+        "failed": TOKENS["danger"],
+        "partial": TOKENS["warn"],
+        "skipped": TOKENS["text_muted"],
+    }
 
 
 class DiagnosticsPage(QWidget):
@@ -206,7 +208,7 @@ class DiagnosticsPage(QWidget):
             for column, key in enumerate(("test", "destination", "result", "interpretation", "next_step")):
                 item = QTableWidgetItem(str(values.get(key, "")))
                 if key == "result":
-                    colour = RESULT_COLOURS.get(str(values.get(key)), "")
+                    colour = _result_colours().get(str(values.get(key)), "")
                     if colour:
                         item.setForeground(_colour(colour))
                 self.results_table.setItem(row, column, item)

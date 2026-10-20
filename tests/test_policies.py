@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nexus_remote.devices.models import Device, RoutingPreferences
+from nexus_remote.devices.models import RoutingPreferences
 from nexus_remote.security.policies import PolicyEngine, RiskLevel, summarize_routes
 
 

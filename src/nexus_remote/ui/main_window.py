@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from nexus_remote import config
+from nexus_remote.resources import application_icon
 from nexus_remote.services import AppServices
 from nexus_remote.ui.commands_page import CommandsPage
 from nexus_remote.ui.dashboard import DashboardPage
@@ -26,7 +27,10 @@ from nexus_remote.ui.device_manager import DeviceManagerPage
 from nexus_remote.ui.diagnostics_view import DiagnosticsPage
 from nexus_remote.ui.security_center import SecurityCenter
 from nexus_remote.ui.settings_view import SettingsPage
+from nexus_remote.ui.tasks import run_async
+from nexus_remote.ui.theme import apply_theme
 from nexus_remote.ui.workspace import WorkspacePage
+from nexus_remote.updates import UpdateChecker, UpdateCheckResult
 
 PAGES = (
     ("Dashboard", "Inventory and session health"),
@@ -47,6 +51,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.services = services
         self.setWindowTitle(f"{config.APP_NAME} {config.APP_VERSION}")
+        self.setWindowIcon(application_icon())
         self.resize(1280, 820)
         self.setMinimumSize(1024, 640)
 
@@ -56,8 +61,17 @@ class MainWindow(QMainWindow):
         sidebar.setFixedWidth(214)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        brand_row = QHBoxLayout()
+        brand_row.setContentsMargins(16, 12, 12, 0)
+        brand_row.setSpacing(8)
+        brand_icon = QLabel()
+        brand_icon.setPixmap(application_icon().pixmap(26, 26))
+        brand_icon.setFixedSize(26, 26)
         title = QLabel(config.APP_NAME)
-        title.setObjectName("SidebarTitle")
+        title.setObjectName("BrandTitle")
+        title.setContentsMargins(0, 0, 0, 0)
+        brand_row.addWidget(brand_icon)
+        brand_row.addWidget(title, 1)
         subtitle = QLabel("Remote access workspace")
         subtitle.setObjectName("SidebarSubtitle")
         self.nav = QListWidget()
@@ -66,7 +80,7 @@ class MainWindow(QMainWindow):
             self.nav.addItem(QListWidgetItem(name))
         self.nav.setCurrentRow(0)
         self.nav.currentRowChanged.connect(self._switch_page)
-        sidebar_layout.addWidget(title)
+        sidebar_layout.addLayout(brand_row)
         sidebar_layout.addWidget(subtitle)
         sidebar_layout.addWidget(self.nav, 1)
         self.vault_state = QLabel("")
@@ -82,7 +96,7 @@ class MainWindow(QMainWindow):
         self.commands = CommandsPage(services)
         self.diagnostics = DiagnosticsPage(services)
         self.security = SecurityCenter(services)
-        self.settings = SettingsPage(services)
+        self.settings = SettingsPage(services, on_theme_changed=self._apply_theme)
         self.stack = QStackedWidget()
         for page in (
             self.dashboard,
@@ -171,6 +185,8 @@ class MainWindow(QMainWindow):
         # being offline is normal and must never block startup.
         if self.services.catalog_auto_check and self.services.catalog_feed_url:
             QTimer.singleShot(4000, lambda: self.commands.check_for_updates(silent=True))
+        if self.services.update_auto_check and self.services.update_feed_url:
+            QTimer.singleShot(7000, self._check_updates_silently)
 
     # -- navigation ---------------------------------------------------------
     def _switch_page(self, index: int) -> None:
@@ -249,6 +265,29 @@ class MainWindow(QMainWindow):
 
     def _set_status(self, message: str) -> None:
         self.status_message.setText(message)
+
+    # -- appearance / updates ----------------------------------------------
+    def _apply_theme(self, name: str) -> None:
+        """Apply a theme live and persist the choice."""
+        from PySide6.QtWidgets import QApplication
+
+        selected = apply_theme(QApplication.instance(), name)
+        self.services.database.set_setting("ui.theme", selected)
+        current = self.stack.currentWidget()
+        if current is not None:
+            current.update()
+        self.update()
+        self._set_status(f"Theme: {selected}")
+
+    def _check_updates_silently(self) -> None:
+        checker = UpdateChecker(self.services.update_feed_url)
+        run_async(checker.check, on_result=self._update_checked_silently)
+
+    def _update_checked_silently(self, result: UpdateCheckResult) -> None:
+        if result.available and result.info is not None:
+            self._set_status(
+                f"Update {result.info.version} is available - open Settings > Updates to install it."
+            )
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         active = self.services.sessions.count_active()

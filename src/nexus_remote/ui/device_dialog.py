@@ -34,7 +34,6 @@ from nexus_remote.devices.models import (
     DEFAULT_PORTS,
     ENVIRONMENTS,
     OPERATING_SYSTEMS,
-    PROTOCOLS,
     ROUTE_METHODS,
     Device,
     ProtocolConfig,

@@ -6,7 +6,6 @@ import pytest
 
 from nexus_remote.security.host_keys import (
     HostKeyDecision,
-    KnownHosts,
     UntrustedHostKeyError,
     fingerprint_of,
     load_known_hosts_file,

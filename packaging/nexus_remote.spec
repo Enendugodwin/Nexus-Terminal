@@ -23,6 +23,10 @@ analysis = Analysis(
             str(SRC / "nexus_remote" / "storage" / "migrations"),
             "nexus_remote/storage/migrations",
         ),
+        (
+            str(SRC / "nexus_remote" / "resources"),
+            "nexus_remote/resources",
+        ),
     ],
     hiddenimports=[
         # keyring resolves backends through entry points, which PyInstaller
@@ -32,6 +36,10 @@ analysis = Analysis(
         "pyte",
         "paramiko",
         "cryptography",
+        # Serial ports are imported lazily by the serial adapter.
+        "serial",
+        "serial.tools",
+        "serial.tools.list_ports",
         # Optional SMB support: the adapter imports smbclient lazily, so the
         # bundler needs to be told it may be present.
         "smbclient",
@@ -40,7 +48,7 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter"],
+    excludes=["tkinter", "pytest", "_pytest", "ruff"],
     noarchive=False,
 )
 
@@ -62,6 +70,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(SRC / "nexus_remote" / "resources" / "nexus.ico"),
+    version=str(ROOT / "packaging" / "version_info.txt"),
 )
 
 # One-directory layout: faster startup than one-file and easier to patch.

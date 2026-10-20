@@ -12,7 +12,7 @@ from pathlib import Path
 
 APP_NAME = "Nexus Remote"
 APP_SLUG = "nexus-remote"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 ORG_NAME = "NexusRemote"
 
 #: Environment variable that overrides the local data directory (used by tests

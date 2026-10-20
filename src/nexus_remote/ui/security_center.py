@@ -27,12 +27,14 @@ from nexus_remote.services import AppServices
 from nexus_remote.ui.device_dialog import CredentialPromptDialog
 from nexus_remote.ui.theme import TOKENS
 
-SEVERITY_COLOURS = {
-    "info": TOKENS["text_muted"],
-    "notice": TOKENS["accent"],
-    "warning": TOKENS["warn"],
-    "critical": TOKENS["danger"],
-}
+
+def _severity_colours() -> dict[str, str]:
+    return {
+        "info": TOKENS["text_muted"],
+        "notice": TOKENS["accent"],
+        "warning": TOKENS["warn"],
+        "critical": TOKENS["danger"],
+    }
 
 
 class SecurityCenter(QWidget):
@@ -333,7 +335,7 @@ class SecurityCenter(QWidget):
                         },
                     )
                 if column == 3 and not stored:
-                    item.setForeground(QColor(SEVERITY_COLOURS["warning"]))
+                    item.setForeground(QColor(_severity_colours()["warning"]))
                 self.credentials_table.setItem(row, column, item)
         self.vault_label.setText(
             f"Vault backend: {self.services.credentials.store.backend_name}"
@@ -376,7 +378,7 @@ class SecurityCenter(QWidget):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 if column == 1:
-                    item.setForeground(QColor(SEVERITY_COLOURS.get(event.severity, TOKENS["text_muted"])))
+                    item.setForeground(QColor(_severity_colours().get(event.severity, TOKENS["text_muted"])))
                 self.audit_table.setItem(row, column, item)
 
 

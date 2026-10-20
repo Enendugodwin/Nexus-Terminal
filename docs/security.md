@@ -79,6 +79,21 @@ The policy engine is deterministic and has no model dependency.
 The database is **not** encrypted. If inventory confidentiality matters, use
 BitLocker/EFS and a dedicated Windows account.
 
+## Application updates
+
+- The update channel is disabled until an HTTPS manifest URL is configured.
+- Checks are bounded (128 KB, 15 seconds) and failures are silent during an
+  automatic check; they never block startup.
+- An installer is downloaded only after explicit confirmation, capped at
+  300 MB and accepted only when its size and SHA-256 match the manifest.
+- Nothing is installed silently or in the background; the app quits and lets the
+  Inno Setup wizard run after the operator consents.
+- The update subsystem is independent of credentials, sessions and inventory:
+  it sends no device data and stores no secrets. A downloaded installer lives in
+  `%LOCALAPPDATA%\NexusRemote\updates\` until it is run.
+- HTTPS authenticates the transport; the SHA-256 protects integrity. Publisher
+  identity requires Authenticode signing of both the app and the setup file.
+
 ## Operational recommendations
 
 1. Use a dedicated, non-admin Windows account for remote administration.
@@ -89,6 +104,8 @@ BitLocker/EFS and a dedicated Windows account.
 6. Rotate credentials and host keys if a workstation is lost or shared.
 7. Treat model endpoints as third parties; never send secrets or customer data.
 8. Sign and hash release builds; verify the hash before deployment.
+9. Point the update feed at an HTTPS server you control, publish `latest.json`
+   deliberately and keep the previous setup file for rollback.
 
 ## Incident response
 

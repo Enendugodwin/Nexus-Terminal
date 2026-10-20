@@ -30,7 +30,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
-from nexus_remote.ui.theme import TOKENS
+from nexus_remote.ui.theme import TOKENS, ansi_colours
 
 try:  # pyte is a declared dependency; fail with a clear message otherwise.
     import pyte
@@ -39,30 +39,10 @@ except ImportError as exc:  # pragma: no cover - packaging guard
         "interactive terminal support requires pyte; run: pip install pyte"
     ) from exc
 
-_BLANK = pyte.screens.Char(" ")
-
 #: pyte reports 256-colour values as bare hex strings and named ANSI colours as
-#: words. Map both to something Qt can paint.
-_ANSI_COLOURS = {
-    "black": "#0a140c",
-    "red": "#ff5f56",
-    "green": "#00ff41",
-    "brown": "#ffc857",
-    "yellow": "#ffd873",
-    "blue": "#57a8ff",
-    "magenta": "#d17ae8",
-    "cyan": "#5ce1c4",
-    "white": "#d9ffe0",
-    "brightblack": "#3f6b47",
-    "brightred": "#ff8a82",
-    "brightgreen": "#6dff8f",
-    "brightbrown": "#ffd98a",
-    "brightyellow": "#ffe9a8",
-    "brightblue": "#8cc7ff",
-    "brightmagenta": "#e9b0ff",
-    "brightcyan": "#9af2e0",
-    "brightwhite": "#ffffff",
-}
+#: words; the active theme supplies a readable palette for both dark and light
+#: variants (see ``ui.theme``).
+_BLANK = pyte.screens.Char(" ")
 
 _SPECIAL_KEYS = {
     "insert": b"\x1b[2~",
@@ -436,7 +416,7 @@ class TerminalView(QWidget):
         advance = max(1.0, metrics.horizontalAdvance("M"))
         line_height = max(1.0, metrics.height())
         ascent = metrics.ascent()
-        background = QColor(TOKENS["bg"])
+        background = QColor(TOKENS["term_bg"])
         painter.fillRect(self.rect(), background)
 
         rows = self._last_rows or 24
@@ -479,7 +459,7 @@ class TerminalView(QWidget):
             return QColor(value)
         if len(value) in (3, 6) and all(char in "0123456789abcdefABCDEF" for char in value):
             return QColor(f"#{value}")
-        return QColor(_ANSI_COLOURS.get(value.lower(), default))
+        return QColor(ansi_colours().get(value.lower(), default))
 
     def _cell_style(
         self,
@@ -504,7 +484,7 @@ class TerminalView(QWidget):
             elif row == end_row:
                 selected = column <= end_col
         if selected:
-            return (TOKENS["text"], TOKENS["accent_soft"], cell.bold, cell.italic, cell.underline, True)
+            return (TOKENS["term_fg"], TOKENS["term_selection"], cell.bold, cell.italic, cell.underline, True)
         return (fg, bg, cell.bold, cell.italic, cell.underline, False)
 
     def _draw_run(
@@ -524,7 +504,7 @@ class TerminalView(QWidget):
         if bg != "default" or selected:
             painter.fillRect(
                 QRectF(x, y, width, height),
-                self._colour(bg, TOKENS["accent_soft"] if selected else TOKENS["bg"]),
+                self._colour(bg, TOKENS["term_selection"] if selected else TOKENS["term_bg"]),
             )
         if not text.strip() and bg == "default" and not selected:
             return
@@ -538,7 +518,7 @@ class TerminalView(QWidget):
             else self._font
         )
         painter.setFont(font)
-        colour = self._colour(fg, TOKENS["text"])
+        colour = self._colour(fg, TOKENS["term_fg"])
         painter.setPen(colour)
         painter.drawText(QPoint(int(x), int(y + ascent)), text)
         if underline:
@@ -567,7 +547,7 @@ class TerminalView(QWidget):
         cells = self.buffer.row(cursor_row)
         char = cells[column].char if column < len(cells) else " "
         painter.setFont(self._font)
-        painter.setPen(QColor(TOKENS["bg"]))
+        painter.setPen(QColor(TOKENS["accent_text"]))
         painter.drawText(QPoint(int(x), int(y + ascent)), char if char.strip() else " ")
 
     def _paint_scroll_hint(self, painter: QPainter) -> None:

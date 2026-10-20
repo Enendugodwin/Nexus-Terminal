@@ -74,7 +74,6 @@ class Session:
             return
         if new_state not in _ALLOWED[self.state]:
             raise InvalidTransition(f"{self.protocol} session cannot go {self.state.value} -> {new_state.value}")
-        previous = self.state
         self.state = new_state
         if new_state is SessionState.CONNECTED:
             self.connected_at = utcnow_iso()

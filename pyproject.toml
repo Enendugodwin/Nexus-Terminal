@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-remote"
-version = "0.1.0"
+version = "0.2.0"
 description = "Nexus Remote - universal remote access and device management workspace"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,7 +39,11 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-nexus_remote = ["storage/migrations/*.sql"]
+nexus_remote = [
+    "storage/migrations/*.sql",
+    "resources/*.ico",
+    "resources/*.png",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

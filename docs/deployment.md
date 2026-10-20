@@ -65,22 +65,72 @@ Secrets still live in the Windows Credential Manager, not on the stick.
 
 Output: `dist\NexusRemote\NexusRemote.exe` (one-directory bundle).
 
-The spec bundles Qt, paramiko, keyring and pyte, and includes the SQL migration
-files. `console=False`, so `--selftest` output is not visible in this build; run
-the self-test from the source environment. If you need a diagnostic build, change
-`console=False` to `True` in `packaging/nexus_remote.spec` and rebuild.
+The spec bundles Qt, paramiko, keyring, pyte, pyserial and the icon/resources,
+and includes the SQL migration files. The executable carries version metadata
+(0.2.0), the multi-resolution application icon and an explicit Windows app ID so
+the taskbar groups and displays it correctly. `console=False`, so `--selftest`
+output is not visible in this build; run the self-test from the source
+environment. If you need a diagnostic build, change `console=False` to `True` in
+`packaging/nexus_remote.spec` and rebuild.
+
+The icon is generated from `packaging/icon.svg`:
+
+```powershell
+.\.venv\Scripts\python.exe packaging\make_icon.py
+```
+
+This writes `src/nexus_remote/resources/nexus.ico` (16-256 px) and `nexus.png`.
+Commit both so builds do not depend on the generator.
+
+## Build the installer
+
+The setup executable is produced with Inno Setup 6 (per-user, no elevation):
+
+```powershell
+winget install JRSoftware.InnoSetup
+& "$env:LOCALAPPDATA\Programs\Inno\ISCC.exe" packaging\installer.iss
+```
+
+Output: `dist\NexusRemoteSetup-<version>.exe` (about 40 MB).
+
+`packaging/installer.iss` defines the per-user install directory
+(`%LOCALAPPDATA%\Programs\Nexus Remote`), Start Menu shortcut, optional desktop
+shortcut, uninstaller and version metadata. It does **not** remove user data.
+For a silent deployment:
+
+```powershell
+.\NexusRemoteSetup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+```
+
+Rebuild the bundle before the installer whenever code changes; the installer
+compiles `dist\NexusRemote\*` at build time.
+
+The optional update feed is a JSON manifest pointing at that setup file. Generate
+it after signing:
+
+```powershell
+.\.venv\Scripts\python.exe packaging\make_manifest.py `
+  --url https://downloads.example.com/NexusRemoteSetup-0.2.0.exe `
+  --notes "Themes and verified updates"
+```
+
+See [updates.md](updates.md) for hosting, schema and release steps.
 
 ### Code signing
 
 Unsigned executables trigger SmartScreen warnings. Sign the bundle with an
-Authenticode certificate:
+Authenticode certificate **before** building the installer, then sign the setup:
 
 ```powershell
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
   /a dist\NexusRemote\NexusRemote.exe
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+  /a dist\NexusRemoteSetup-0.2.0.exe
 ```
 
 Distribute a SHA-256 hash alongside the package and verify it before deployment.
+The optional update feed also verifies the installer's hash and is documented in
+[docs/updates.md](updates.md).
 
 ## First-run checklist
 
@@ -94,7 +144,9 @@ Distribute a SHA-256 hash alongside the package and verify it before deployment.
 
 ## Upgrade
 
-Migrations are forward-only (`PRAGMA user_version`). Before replacing a build:
+Migrations are forward-only (`PRAGMA user_version`). The packaged installer
+upgrades in place and preserves `%LOCALAPPDATA%\NexusRemote`. Before any manual
+replacement or a major upgrade:
 
 1. Close the app.
 2. Copy `nexus.db`, `logs\` and `known_hosts` to a safe location.
@@ -102,15 +154,23 @@ Migrations are forward-only (`PRAGMA user_version`). Before replacing a build:
 4. Keep the backup until the new version has been used successfully.
 
 Downgrading is not supported: an older build will refuse a database with a newer
-schema version.
+schema version. To roll back, install the previous setup file manually; it keeps
+the same data directory and still refuses a newer schema.
+
+The in-app updater offers newer versions only and requires explicit consent (see
+`docs/updates.md`).
 
 ## Uninstall
 
 1. Revoke stored credentials on the **Security** page (or remove them with
    `cmdkey /delete:nexus-remote` entries).
-2. Delete `%LOCALAPPDATA%\NexusRemote` after exporting anything you need.
-3. Delete the application folder. There is no registry footprint beyond the
-   credential entries.
+2. Uninstall **Nexus Remote** from **Settings > Apps > Installed apps**. This
+   removes the program files and shortcuts; the uninstaller deliberately leaves
+   `%LOCALAPPDATA%\NexusRemote` in place.
+3. Delete `%LOCALAPPDATA%\NexusRemote` after exporting anything you need.
+
+The only registry footprint is the per-user uninstall entry (and any credential
+entries you created).
 
 ## Troubleshooting
 

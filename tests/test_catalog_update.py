@@ -12,7 +12,6 @@ import pytest
 from nexus_remote.assistant.autocomplete import CompletionEngine, SuggestionSource
 from nexus_remote.assistant.builtin_catalog import CATALOG, CATALOG_VERSION
 from nexus_remote.assistant.catalog import (
-    Catalog,
     CatalogFormatError,
     count_new_entries,
     load_environment_map,
