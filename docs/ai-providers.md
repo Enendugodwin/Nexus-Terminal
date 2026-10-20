@@ -1,0 +1,79 @@
+# Optional AI providers
+
+AI is off by default. Everything deterministic - inventory, SSH/SFTP/serial,
+diagnostics, suggestions, history, rules, playbooks and audit - works without a
+model or a network connection.
+
+## Enabling a provider
+
+Open **Settings > Optional AI**, choose a provider and press **Save settings**.
+Hosted providers need an API key; the key is written to the Windows Credential
+Manager under the service prefix `nexus-remote`, never to SQLite or logs. The
+field is write-only: leave it blank to keep the stored key, or tick **Remove the
+stored key** to delete it.
+
+| Provider | Default endpoint | Key |
+| --- | --- | --- |
+| Ollama | `http://127.0.0.1:11434/api/generate` | not required |
+| OpenAI (GPT / Codex models) | `https://api.openai.com/v1/chat/completions` | required |
+| Anthropic (Claude) | `https://api.anthropic.com/v1/messages` | required |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` | required |
+| OpenAI-compatible | `http://127.0.0.1:1234/v1/chat/completions` | optional |
+
+The OpenAI-compatible adapter works with OpenChat servers, OpenRouter, LM Studio,
+vLLM, LocalAI and other services that implement
+`POST /v1/chat/completions`. Set the **full** endpoint URL, not just the host.
+For Gemini, `{model}` in the endpoint is replaced with the model field.
+
+**Test provider** performs one bounded request (for example `GET /v1/models`)
+without saving anything. A failed test leaves the current settings untouched.
+
+## Endpoint rules
+
+- `https://` is accepted anywhere.
+- `http://` is accepted for loopback (`127.0.0.1`, `::1`, `localhost`) and for
+  local servers without a key.
+- A request that carries an API key is refused over plain HTTP unless the
+  endpoint is loopback. This prevents a key being sent in clear text across a
+  LAN or the internet.
+- Responses are capped at 2 MB and requests time out (60 seconds by default;
+  provider tests use at most 15 seconds).
+
+## In the assistant
+
+The **Optional AI** tab beside the terminal has a question box, an optional
+context box (for error text or a banner), and the answer.
+
+- Only what you type is sent. Terminal output is **not** uploaded automatically.
+- Context is fenced as `UNTRUSTED_REMOTE_OUTPUT`; the prompt tells the model to
+  treat it as data, not instructions.
+- Answers are labelled *AI-generated ... unverified* and are never executed.
+- **Insert into shell** selects one command-looking line and pastes it into the
+  open shell without pressing Enter. The remote policy gate still runs when you
+  press Enter yourself; local PowerShell commands are your own responsibility.
+- Requests are audited (`ai.request`) with provider, model, character count and
+  outcome - never the prompt or answer text.
+
+Model output is not a security control. It cannot change policy, approve a
+command, read credentials or call tools.
+
+## Keys and privacy
+
+- API keys are stored in the OS vault; the database stores only settings.
+- A provider may log prompts and answers. Treat it as a third party: do not send
+  credentials, customer data or anything you are not allowed to share.
+- If a workstation is shared or lost, remove the key in **Settings > Optional
+  AI** (or Windows Credential Manager) and rotate it at the provider.
+- There is no telemetry, background prompt upload or silent provider fallback.
+  Selecting **Disabled** restores the fully offline assistant immediately.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| "No AI provider is ready" | Choose a provider, enter its key and save. |
+| HTTP 401 / 403 | The key is wrong, expired or lacks access to that model. |
+| HTTP 404 | The endpoint path or model name is wrong. |
+| "refusing to send an API key over plain HTTP" | Use HTTPS or a loopback endpoint. |
+| Ollama "not reachable" | Is Ollama running, and is the host/port correct? |
+| Model answer contains prose | **Insert into shell** only accepts command-looking lines; copy and edit instead. |

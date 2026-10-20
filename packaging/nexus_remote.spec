@@ -11,14 +11,21 @@ collected automatically; migrations are included as data files.
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 ROOT = Path(SPECPATH).resolve().parent
 SRC = ROOT / "src"
+
+# pywinpty ships native ConPTY DLLs and helper executables next to the module.
+# collect_all keeps them in the one-directory bundle for the local PowerShell tab.
+winpty_datas, winpty_binaries, winpty_hidden = collect_all("winpty")
 
 analysis = Analysis(
     [str(ROOT / "app.py")],
     pathex=[str(SRC)],
-    binaries=[],
-    datas=[
+    binaries=winpty_binaries,
+    datas=winpty_datas
+    + [
         (
             str(SRC / "nexus_remote" / "storage" / "migrations"),
             "nexus_remote/storage/migrations",
@@ -44,6 +51,8 @@ analysis = Analysis(
         # bundler needs to be told it may be present.
         "smbclient",
         "smbprotocol",
+        "winpty",
+        *winpty_hidden,
     ],
     hookspath=[],
     hooksconfig={},

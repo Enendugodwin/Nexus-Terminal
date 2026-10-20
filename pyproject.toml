@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-remote"
-version = "0.2.0"
+version = "0.3.0"
 description = "Nexus Remote - universal remote access and device management workspace"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,6 +16,7 @@ dependencies = [
     "PyYAML>=6.0",
     "pyte>=0.8.1",
     "pyserial>=3.5",
+    "pywinpty>=2.0; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

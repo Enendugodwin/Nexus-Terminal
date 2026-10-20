@@ -11,6 +11,9 @@
   are never written to the database, logs or session metadata.
 - If no vault backend is available the app falls back to an in-memory backend and
   reports it as non-persistent. Do not rely on that mode for production.
+- Optional AI provider keys are vault entries (`ai:api_token:<provider>`). The
+  Settings field is write-only; the assistant reads the key only when a request
+  is made. Nothing in SQLite, logs or exports contains it.
 - SSH private keys are secrets too: paste a key into the vault as `ssh_private_key`
   and its passphrase as `ssh_key_passphrase`. The device profile only stores an
   optional key *file path*, never key material or the passphrase.
@@ -55,6 +58,30 @@ The policy engine is deterministic and has no model dependency.
 - The terminal does not automatically open links or paste on focus.
 - Copy is explicit (`Ctrl+Shift+C` or the context menu). If a selection exists,
   `Ctrl+C` copies instead of sending an interrupt; otherwise it sends `^C`.
+
+## Local PowerShell
+
+- The local shell runs with the current Windows account and is **not** filtered
+  by the remote command policy; the page says so and start/stop is audited.
+- It never starts at launch, only after **Start PowerShell**, and is terminated
+  by `MainWindow.closeEvent`. There is no hidden shell process.
+- Terminal output, AI answers and clipboard content are never typed into it
+  automatically. The assistant's **Insert into shell** only pastes text; the
+  operator presses Enter.
+
+## Optional AI egress
+
+- AI is disabled by default and has no effect on the policy engine.
+- Only the question and optional context typed in the assistant tab are sent;
+  terminal output is not uploaded automatically.
+- Endpoints must be HTTP(S). If an API key is present, plain HTTP is refused
+  unless the host is loopback (`127.0.0.1`, `::1`, `localhost`).
+- Responses are bounded (2 MB) with a request timeout; provider error text is
+  truncated and never includes the key.
+- Answers are labelled unverified and cannot execute. Requests are audited with
+  provider, model, character count and outcome, not prompt or answer text.
+- Selecting **Disabled** removes the active adapter; the deterministic assistant
+  continues to work offline.
 
 ## Logging and audit
 
@@ -103,6 +130,9 @@ BitLocker/EFS and a dedicated Windows account.
 5. Review the Security page and `logs/audit.jsonl` after incidents.
 6. Rotate credentials and host keys if a workstation is lost or shared.
 7. Treat model endpoints as third parties; never send secrets or customer data.
+   Remove stored AI keys you no longer use from **Settings > Optional AI**.
+   Remember that the local PowerShell page is an unfiltered shell for your own
+   account.
 8. Sign and hash release builds; verify the hash before deployment.
 9. Point the update feed at an HTTPS server you control, publish `latest.json`
    deliberately and keep the previous setup file for rollback.

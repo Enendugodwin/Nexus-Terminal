@@ -29,8 +29,14 @@ from PySide6.QtWidgets import (
 
 from nexus_remote.assistant.autocomplete import SuggestionSource
 from nexus_remote.assistant.command_history import CommandStatus
+from nexus_remote.assistant.model_adapters import (
+    ModelResponse,
+    build_prompt,
+    suggestion_from_response,
+)
 from nexus_remote.services import AppServices
 from nexus_remote.ui.command_input import SuggestionLineEdit
+from nexus_remote.ui.tasks import run_async
 
 
 class AssistantPanel(QWidget):
@@ -447,20 +453,59 @@ class AssistantPanel(QWidget):
         page = QWidget()
         self.ai_status = QLabel("")
         self.ai_status.setWordWrap(True)
-        model_edit = QLineEdit(self.services.database.get_setting("ai.model", "llama3.1") or "")
-        host_edit = QLineEdit(self.services.database.get_setting("ai.host", "http://127.0.0.1:11434") or "")
-        test_button = QPushButton("Test provider")
-        test_button.clicked.connect(lambda: self._test_provider(host_edit.text(), model_edit.text()))
+        self._ai_last_response: ModelResponse | None = None
+
+        self.ai_question = QPlainTextEdit()
+        self.ai_question.setObjectName("Mono")
+        self.ai_question.setPlaceholderText(
+            "Ask for an explanation, a next diagnostic step or a read-only check..."
+        )
+        self.ai_question.setMaximumHeight(86)
+        self.ai_context = QPlainTextEdit()
+        self.ai_context.setObjectName("Mono")
+        self.ai_context.setPlaceholderText(
+            "Optional context (error text, banner). It is sent as untrusted data."
+        )
+        self.ai_context.setMaximumHeight(64)
+
+        self.ai_ask_button = QPushButton("Ask provider")
+        self.ai_ask_button.setObjectName("Primary")
+        self.ai_ask_button.clicked.connect(self.ask_ai)
+        self.ai_copy_button = QPushButton("Copy")
+        self.ai_copy_button.setEnabled(False)
+        self.ai_copy_button.clicked.connect(self.copy_ai_response)
+        self.ai_insert_button = QPushButton("Insert into shell")
+        self.ai_insert_button.setEnabled(False)
+        self.ai_insert_button.setToolTip(
+            "Insert one command-looking line into the open shell. It is never run automatically."
+        )
+        self.ai_insert_button.clicked.connect(self.insert_ai_suggestion)
+
+        ask_row = QHBoxLayout()
+        ask_row.setContentsMargins(0, 0, 0, 0)
+        ask_row.addWidget(self.ai_ask_button)
+        ask_row.addWidget(self.ai_copy_button)
+        ask_row.addWidget(self.ai_insert_button)
+        ask_row.addStretch(1)
+
+        self.ai_response_header = QLabel("AI output is unverified and never executed automatically.")
+        self.ai_response_header.setObjectName("Faint")
+        self.ai_response_header.setWordWrap(True)
+        self.ai_response = QPlainTextEdit()
+        self.ai_response.setReadOnly(True)
+        self.ai_response.setObjectName("Mono")
+        self.ai_response.setPlaceholderText("The model's answer appears here.")
 
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.ai_status)
-        form = QHBoxLayout()
-        form.addWidget(QLabel("Ollama endpoint"))
-        form.addWidget(host_edit, 1)
-        form.addWidget(QLabel("Model"))
-        form.addWidget(model_edit, 1)
-        form.addWidget(test_button)
-        layout.addLayout(form)
+        layout.addWidget(QLabel("Question"))
+        layout.addWidget(self.ai_question)
+        layout.addWidget(QLabel("Context (optional)"))
+        layout.addWidget(self.ai_context)
+        layout.addLayout(ask_row)
+        layout.addWidget(self.ai_response_header)
+        layout.addWidget(self.ai_response, 1)
         ai_note = _note(
             "AI is optional. Terminal output, banners and remote logs are untrusted input: the model "
             "may summarise them, but the deterministic policy engine decides what is allowed, and "
@@ -468,17 +513,100 @@ class AssistantPanel(QWidget):
         )
         ai_note.setVisible(not self.compact)
         layout.addWidget(ai_note)
-        layout.addStretch(1)
         return page
 
-    def _test_provider(self, host: str, model: str) -> None:  # pragma: no cover - needs a local model
-        from nexus_remote.assistant.model_adapters import OllamaModel
+    def ask_ai(self) -> None:
+        """Send only what the operator typed (plus optional pasted context)."""
 
-        provider = OllamaModel(model=model or "llama3.1", host=host or "http://127.0.0.1:11434")
-        available = provider.available()
-        self.ai_status.setText(
-            f"{provider.name} at {provider.host}: {'reachable' if available else 'not reachable'}"
-            + (f" (model {provider.model})" if available else " - deterministic features remain available")
+        question = self.ai_question.toPlainText().strip()
+        if not question:
+            QMessageBox.information(self, "Nothing to ask", "Type a question for the model first.")
+            return
+        registry = self.services.models
+        if not registry.available():
+            self.ai_status.setText(
+                "No AI provider is ready. Open Settings > Optional AI to choose one and store a key."
+            )
+            return
+        context = self.ai_context.toPlainText().strip()
+        prompt = build_prompt(question, untrusted_output=context)
+        self._ai_last_response = None
+        self.ai_response.clear()
+        self.ai_copy_button.setEnabled(False)
+        self.ai_insert_button.setEnabled(False)
+        self.ai_ask_button.setEnabled(False)
+        self.ai_response_header.setText("Waiting for the provider...")
+        run_async(
+            registry.complete,
+            prompt,
+            on_result=self._ai_answered,
+            on_error=self._ai_failed,
+        )
+
+    def _ai_answered(self, response: object) -> None:
+        self.ai_ask_button.setEnabled(True)
+        if not isinstance(response, ModelResponse):
+            self._ai_failed("the provider returned an unexpected response", "")
+            return
+        text = response.text.strip()
+        if not text:
+            self._ai_failed("the provider returned an empty answer", "")
+            return
+        self._ai_last_response = response
+        self.ai_response_header.setText(
+            f"AI-generated by {response.provider} / {response.model} - unverified. "
+            "Nothing runs until you insert it and press Enter yourself."
+        )
+        self.ai_response.setPlainText(text)
+        self.ai_copy_button.setEnabled(True)
+        self.ai_insert_button.setEnabled(
+            suggestion_from_response(response, validator=_looks_like_command) is not None
+        )
+        self.services.audit.record(
+            "ai",
+            "ai.request",
+            severity="info",
+            outcome="success",
+            detail={
+                "provider": response.provider,
+                "model": response.model,
+                "response_chars": len(text),
+            },
+        )
+
+    def _ai_failed(self, message: str, detail: str = "") -> None:
+        self.ai_ask_button.setEnabled(True)
+        self.ai_response_header.setText("The provider did not answer.")
+        self.ai_response.setPlainText(
+            (str(message) or "the provider did not answer")
+            + (f"\n\n{detail}" if detail and detail != message else "")
+        )
+        self.services.audit.record(
+            "ai",
+            "ai.request",
+            severity="warning",
+            outcome="failure",
+            detail={"message": (str(message) or "provider error")[:300]},
+        )
+
+    def copy_ai_response(self) -> None:
+        text = self.ai_response.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+            self.status_message.emit("AI response copied to the clipboard.")
+
+    def insert_ai_suggestion(self) -> None:
+        if self._ai_last_response is None:
+            return
+        candidate = suggestion_from_response(
+            self._ai_last_response, validator=_looks_like_command
+        )
+        if not candidate:
+            self.status_message.emit("No single command-looking line was found in the response.")
+            return
+        self.send_shell_requested.emit(candidate)
+        self.status_message.emit(
+            "AI suggestion inserted into the open shell - review it, then press Enter to run it."
         )
 
     # -- context ------------------------------------------------------------
@@ -522,11 +650,64 @@ class AssistantPanel(QWidget):
             )
 
         provider = self.services.models
-        self.ai_status.setText(
-            f"Provider: {provider.model.name}"
-            + ("" if provider.available() else "  - not configured; suggestion engine, history, rules and "
-               "playbooks all work offline")
-        )
+        config = self.services.ai_config
+        if not config.enabled:
+            self.ai_status.setText(
+                "AI is disabled. Suggestion engine, history, rules and playbooks work offline; "
+                "choose a provider in Settings > Optional AI to ask a model."
+            )
+        else:
+            self.ai_status.setText(
+                f"Provider: {config.label}  |  model: {provider.model.model or config.model}"
+                + (
+                    ""
+                    if provider.available()
+                    else "  - not ready (a key may be missing; Settings > Optional AI)"
+                )
+            )
+
+
+_COMMAND_VERBS = frozenset(
+    """
+    apt awk cat cd chmod chown curl cut date df dig dir dmesg docker dnf du echo env
+    export file find free getent git grep head history host hostname htop ifconfig ip
+    ipconfig journalctl kubectl last less ls lsblk lsof md5sum mkdir more mount mv
+    netstat nmap nslookup openssl pacman ping pip powershell printenv ps pwd python
+    reg route sc scp sed sftp sha256sum show sort ssh stat ss sudo systemctl tail tar
+    tasklist taskkill tee top tracert traceroute type uname uniq uptime ver w wget wc
+    where who whoami winget wmic yum
+    """.split()
+)
+_PS_VERBS = frozenset(
+    "add clear close copy disable enable export get import invoke move new out remove "
+    "rename restart resolve select set start stop test where write".split()
+)
+
+
+def _looks_like_command(text: str) -> bool:
+    """Reject prose lines when offering an AI answer for insertion.
+
+    This is only a display/insertion guard. The operator still reviews the text
+    and the remote policy gate evaluates it before anything can run.
+    """
+
+    candidate = (text or "").strip().strip("`").strip()
+    if not candidate or len(candidate) > 200:
+        return False
+    if candidate[-1] in ":.,?!":
+        return False
+    first = candidate.split()[0].strip("'\"").lower()
+    if not first or first.startswith(("-", "*", "•")):
+        return False
+    if first in _COMMAND_VERBS:
+        return True
+    if first.endswith((".exe", ".ps1", ".sh", ".py", ".bat", ".cmd")):
+        return True
+    if "/" in first or "\\" in first:
+        return True
+    if "-" in first and first.split("-", 1)[0] in _PS_VERBS:
+        return True
+    return False
 
 
 def _note(text: str) -> QLabel:

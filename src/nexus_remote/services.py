@@ -17,8 +17,9 @@ from nexus_remote.assistant.autocomplete import CompletionEngine
 from nexus_remote.assistant.catalog import load_environment_map
 from nexus_remote.assistant.command_history import CommandHistory
 from nexus_remote.assistant.error_rules import ErrorDiagnosisEngine
-from nexus_remote.assistant.model_adapters import ModelRegistry
+from nexus_remote.assistant.model_adapters import ModelRegistry, NullModel
 from nexus_remote.assistant.playbooks import PlaybookLibrary
+from nexus_remote.assistant.providers import AIConfig, build_model, load_ai_config, preset_for
 from nexus_remote.assistant.snippets import SnippetStore
 from nexus_remote.connections.manager import SessionManager
 from nexus_remote.connections.routing import RoutingEngine
@@ -92,6 +93,52 @@ class AppServices:
             downloaded=load_environment_map(self.paths.catalog)
         )
 
+    # -- optional AI --------------------------------------------------------
+    @property
+    def ai_config(self) -> AIConfig:
+        return load_ai_config(self.database)
+
+    @property
+    def ai_provider_label(self) -> str:
+        return preset_for(self.ai_config.provider).label
+
+    @staticmethod
+    def _ai_key_name(provider: str) -> str:
+        return f"ai:api_token:{(provider or 'disabled').strip() or 'disabled'}"
+
+    def ai_api_key(self, provider: str | None = None) -> str:
+        """Read a provider key from the OS vault (never from SQLite)."""
+
+        key = self._ai_key_name(provider or self.ai_config.provider)
+        return self.credentials.store.get(key) or ""
+
+    def ai_key_configured(self, provider: str | None = None) -> bool:
+        return bool(self.ai_api_key(provider))
+
+    def save_ai_api_key(self, provider: str, secret: str) -> None:
+        value = (secret or "").strip()
+        if not value:
+            raise ValueError("refusing to store an empty API key")
+        self.credentials.store.backend.set(self._ai_key_name(provider), value)
+
+    def clear_ai_api_key(self, provider: str) -> None:
+        self.credentials.store.backend.delete(self._ai_key_name(provider))
+
+    def configure_ai_from_settings(self) -> None:
+        """Rebuild the active model from saved settings and the vault.
+
+        Construction is offline; hosted providers do not contact their API until
+        the operator explicitly asks a question or presses Test.
+        """
+
+        config = self.ai_config
+        try:
+            key = self.ai_api_key(config.provider) if config.requires_key else ""
+            model = build_model(config, api_key=key)
+        except Exception:  # noqa: BLE001 - bad settings must not break startup
+            model = NullModel()
+        self.models.configure(model)
+
     # -- application updates -------------------------------------------------
     @property
     def update_feed_url(self) -> str:
@@ -144,7 +191,7 @@ def build_services(
     from nexus_remote.protocols import register_adapters
 
     register_adapters(sessions, host_keys)
-    return AppServices(
+    services = AppServices(
         paths=resolved,
         database=database,
         devices=repository,
@@ -164,6 +211,10 @@ def build_services(
         sessions=sessions,
         models=ModelRegistry(),
     )
+    # Restore the operator's chosen provider on every launch, not only after
+    # the Settings page is saved. This performs no network access.
+    services.configure_ai_from_settings()
+    return services
 
 
 def configure_logging(paths: config.Paths | None = None, *, level: int = logging.INFO) -> logging.Logger:

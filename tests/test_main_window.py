@@ -34,6 +34,7 @@ def test_workspace_menu_keeps_all_of_its_actions(app, services):
     assert [action.text() for action in menu.actions()] == [
         "New connection",
         "Assistant beside terminal",
+        "Local PowerShell",
         "Saved commands",
         "Run diagnostics",
         "Security Center",
@@ -41,7 +42,7 @@ def test_workspace_menu_keeps_all_of_its_actions(app, services):
         "",
         "Exit",
     ]
-    assert menu.actions()[6].isSeparator()
+    assert menu.actions()[7].isSeparator()
     window.close()
 
 
@@ -53,6 +54,10 @@ def test_workspace_menu_actions_navigate(app, services):
         if child.text() == "Workspace menu"
     )
     actions = {action.text(): action for action in menu.actions() if action.text()}
+
+    actions["Local PowerShell"].trigger()
+    assert window.stack.currentIndex() == PAGE_INDEX["PowerShell"]
+    assert window.page_title.text() == "PowerShell"
 
     actions["Saved commands"].trigger()
     assert window.stack.currentIndex() == PAGE_INDEX["Commands"]

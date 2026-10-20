@@ -58,7 +58,7 @@ class DiagnosticReport:
 
     def render_text(self) -> str:
         lines = [
-            f"NEXUS REMOTE DIAGNOSTIC REPORT",
+            "NEXUS REMOTE DIAGNOSTIC REPORT",
             f"Target:    {self.target}" + (f":{self.port}" if self.port else ""),
             f"Protocol:  {self.protocol or 'unspecified'}",
             f"Started:   {self.started_at}",

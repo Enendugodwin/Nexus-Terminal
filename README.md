@@ -6,9 +6,10 @@ FreeRDP desktop, device inventory, diagnostics and a deterministic assistant.
 Everything that matters works offline; no AI model is required to connect,
 diagnose or run a playbook.
 
-> **Status: MVP 0.2.0.** SSH (password, SSH agent or private key), SFTP,
-> serial consoles, interactive terminal emulation, SMB browsing, four themes,
-> a Windows installer and a signed-manifest update channel are implemented. RDP
+> **Status: MVP 0.3.0.** SSH (password, SSH agent or private key), SFTP,
+> serial consoles, interactive terminal emulation, a local PowerShell console,
+> SMB browsing, optional hosted AI providers, four themes, a Windows installer
+> and a signed-manifest update channel are implemented. RDP
 > is performed by the application itself through the FreeRDP client, embedded in
 > the workspace window (`mstsc.exe` is not used). SMB needs the optional
 > `smbprotocol` extra and is SMB 2/3 only. Cloud discovery, NAT traversal and
@@ -29,6 +30,11 @@ diagnose or run a playbook.
 - **Interactive terminal** - VT100/xterm emulation via `pyte`: cursor movement,
   colours, full-screen programs, scrollback, PTY resize, copy/paste, bracketed
   paste and application cursor keys.
+- **Local PowerShell section** - a real ConPTY console for **this computer**,
+  with Windows PowerShell 5.1 / PowerShell 7 detection, a chosen working
+  directory, full colours and interactive programs. It never starts at launch
+  and is stopped when the app closes. Local commands run with your Windows
+  account and are not filtered by the remote command policy; the page says so.
 - **System information strip** - under the terminal, five cards read from the
   connected host: CPU cores and model, memory (used/total plus swap), storage
   (used/total for `/`), OS/kernel/architecture/hostname and uptime with load and
@@ -69,6 +75,14 @@ diagnose or run a playbook.
   types it into the open interactive shell without pressing Enter, and **Copy**
   puts it on the clipboard. Optional model adapters are clearly labelled
   *unverified* and can never execute anything.
+- **Optional external AI** - choose Ollama (local), OpenAI-compatible endpoints
+  (OpenChat, OpenRouter, LM Studio, vLLM), OpenAI, Anthropic Claude or Google
+  Gemini in **Settings > Optional AI**. API keys are stored in Windows
+  Credential Manager; a key is never sent over plain HTTP except to loopback.
+  The assistant sends only the question and context you type, labels every
+  answer *unverified*, and inserts a suggested line into the shell only when you
+  press the button - you still press Enter. See
+  [docs/ai-providers.md](docs/ai-providers.md).
 - **Security-first defaults** - credentials stay in Windows Credential Manager;
   SQLite and logs hold references only. Unknown SSH host keys are refused until
   the operator trusts the fingerprint. Dangerous commands are blocked by a
@@ -87,19 +101,22 @@ diagnose or run a playbook.
 - Serial consoles need `pyserial` (installed with the package). If it is
   missing, connecting to a serial profile explains how to install it; no other
   feature is affected.
+- The local PowerShell console needs `pywinpty` (installed with the package on
+  Windows) and Windows 10 1809+ for ConPTY. Without it, only the PowerShell page
+  is unavailable; remote features are unaffected.
 
 ## Install and run
 
 ### Packaged Windows app
 
-Run `NexusRemoteSetup-0.2.0.exe` from `dist\` (or the copy published by your
+Run `NexusRemoteSetup-0.3.0.exe` from `dist\` (or the copy published by your
 team). It installs per user, needs no administrator rights and leaves existing
 data in place during upgrades. Start **Nexus Remote** from the Start Menu.
 
 Silent deployment for IT:
 
 ```powershell
-.\NexusRemoteSetup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+.\NexusRemoteSetup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 Uninstall through **Settings > Apps > Installed apps**; user data in
@@ -139,7 +156,8 @@ $env:PYTHONPATH = "src"
 The suite covers storage/migrations, device models and repository, credential
 references, host keys, redaction, policy, routing, sessions, transfers,
 diagnostics, autocomplete/history/snippets, error rules, the terminal buffer,
-the terminal widget (offscreen Qt), theme switching and the update feed.
+the terminal widget (offscreen Qt), the local PowerShell ConPTY channel, AI
+provider request shaping and settings, theme switching and the update feed.
 
 ## Project layout
 
@@ -148,6 +166,7 @@ src/nexus_remote/
   config.py            paths and constants
   services.py          single wiring point for the whole app
   main.py              CLI and GUI bootstrap
+  host_shell.py        local PowerShell console over Windows ConPTY
   updates.py           update manifest check, verified download, installer hand-off
   resources.py         bundled icon lookup and Windows app identity
   resources/           multi-resolution icon and PNG mark
@@ -165,6 +184,8 @@ src/nexus_remote/
 
 - [Architecture](docs/architecture.md)
 - [Command catalog feed](docs/catalog-feed.md)
+- [Optional AI providers](docs/ai-providers.md)
+- [Local PowerShell console](docs/local-shell.md)
 - [Update feed and release process](docs/updates.md)
 - [Threat model](docs/threat-model.md)
 - [Security guide](docs/security.md)

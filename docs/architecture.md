@@ -7,7 +7,7 @@ and clear seams where a gateway, relay or endpoint agent can be added later.
 
 ```
 UI (PySide6)
-  main_window, dashboard, device_manager, workspace,
+  main_window, dashboard, device_manager, workspace, powershell_page,
   terminal_view, system_info, diagnostics_view, assistant_panel, security_center
         |
 Services (services.py)
@@ -22,6 +22,8 @@ Services (services.py)
 +----------------+----------------+----------------+----------------+
         |
 protocols: SSH/SFTP (paramiko), serial (pyserial), RDP (FreeRDP), SMB 2/3 (optional)
+        |
+local console: PowerShell via Windows ConPTY (pywinpty)
         |
 storage: SQLite + forward-only migrations, FTS5 when available
 ```
@@ -89,6 +91,20 @@ GUI timer. A serial line has no login, no `exec_command` and no PTY size, so
 system information is marked unavailable and the console tab rejects the
 session; typed bytes go straight to the device, outside the command gate, as
 with a physical console cable.
+
+### Local PowerShell
+
+The **PowerShell** page is separate from sessions: `host_shell.PtyChannel`
+spawns a chosen `powershell.exe` or `pwsh.exe` under Windows ConPTY via
+`pywinpty`, with a selected working directory and the normal user profile. It
+exposes the same `read`/`write`/`resize`/`close`/`closed` surface as the SSH and
+serial channels, so `TerminalView` attaches unchanged. A background reader
+thread performs the blocking ConPTY read into a queue; the Qt timer only drains
+it, so a silent shell cannot freeze the UI. The shell never starts at launch,
+is stopped from its page, and is terminated by `MainWindow.closeEvent`. Local
+commands run with the operator's Windows account and are explicitly outside the
+remote policy gate; start/stop events are audited. See
+[local-shell.md](local-shell.md).
 
 ### One-off commands
 The SSH console tab runs `SessionManager.execute()`. `PolicyEngine.classify()`
@@ -185,6 +201,16 @@ adapters are optional; their suggestions carry the `AI-generated (unverified)`
 label, rank below verified/history entries, and are never executed
 automatically.
 
+`assistant/providers.py` owns the provider catalogue and settings migration
+(the pre-0.3 keys were Ollama-only). `assistant/model_adapters.py` implements
+Ollama, OpenAI Chat Completions (also OpenChat/OpenRouter/LM Studio/vLLM),
+Anthropic Messages and Gemini generateContent. The active adapter is rebuilt
+from settings and the OS vault at startup and after **Save settings**;
+construction is offline. The assistant sends only the typed question and
+optional context, treats responses as untrusted text, and audits provider,
+model, character count and outcome without storing prompt or answer text. See
+[ai-providers.md](ai-providers.md).
+
 Two buttons sit beside the Prefix box. **Send to shell** pastes the command into
 the attached interactive terminal without a newline, so the operator still
 presses Enter; with no shell attached it falls back to loading the SSH console
@@ -215,4 +241,5 @@ migration is skipped and search falls back to `LIKE`/in-memory matching.
   (`agent`, `relay`, `cloud_private`) are already reserved and denied until
   configured and allow-listed.
 - **Model provider**: implement the small adapter protocol in
-  `assistant/model_adapters.py`. It cannot bypass policy.
+  `assistant/model_adapters.py` and add a preset in `assistant/providers.py`.
+  It cannot bypass policy, and API keys belong in the vault.

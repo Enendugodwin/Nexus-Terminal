@@ -65,9 +65,10 @@ Secrets still live in the Windows Credential Manager, not on the stick.
 
 Output: `dist\NexusRemote\NexusRemote.exe` (one-directory bundle).
 
-The spec bundles Qt, paramiko, keyring, pyte, pyserial and the icon/resources,
-and includes the SQL migration files. The executable carries version metadata
-(0.2.0), the multi-resolution application icon and an explicit Windows app ID so
+The spec bundles Qt, paramiko, keyring, pyte, pyserial, pywinpty (ConPTY for the
+local PowerShell page) and the icon/resources, and includes the SQL migration
+files. The executable carries version metadata
+(0.3.0), the multi-resolution application icon and an explicit Windows app ID so
 the taskbar groups and displays it correctly. `console=False`, so `--selftest`
 output is not visible in this build; run the self-test from the source
 environment. If you need a diagnostic build, change `console=False` to `True` in
@@ -99,7 +100,7 @@ shortcut, uninstaller and version metadata. It does **not** remove user data.
 For a silent deployment:
 
 ```powershell
-.\NexusRemoteSetup-0.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+.\NexusRemoteSetup-0.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 Rebuild the bundle before the installer whenever code changes; the installer
@@ -110,7 +111,7 @@ it after signing:
 
 ```powershell
 .\.venv\Scripts\python.exe packaging\make_manifest.py `
-  --url https://downloads.example.com/NexusRemoteSetup-0.2.0.exe `
+  --url https://downloads.example.com/NexusRemoteSetup-0.3.0.exe `
   --notes "Themes and verified updates"
 ```
 
@@ -125,7 +126,7 @@ Authenticode certificate **before** building the installer, then sign the setup:
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
   /a dist\NexusRemote\NexusRemote.exe
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  /a dist\NexusRemoteSetup-0.2.0.exe
+  /a dist\NexusRemoteSetup-0.3.0.exe
 ```
 
 Distribute a SHA-256 hash alongside the package and verify it before deployment.

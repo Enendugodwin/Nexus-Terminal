@@ -22,7 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from nexus_remote import config
-from nexus_remote.assistant.model_adapters import NullModel, OllamaModel
+from nexus_remote.assistant.providers import (
+    AIConfig,
+    PROVIDERS,
+    build_model,
+    preset_for,
+    validate_endpoint,
+)
 from nexus_remote.services import AppServices
 from nexus_remote.ui.tasks import run_async
 from nexus_remote.ui.theme import current_theme, theme_choices
@@ -66,9 +72,29 @@ class SettingsPage(QWidget):
         self.version_label = QLabel(f"Installed version: {config.APP_VERSION}")
         self.version_label.setObjectName("Faint")
 
-        self.ai_enabled = QCheckBox("Use a local Ollama-compatible model for optional explanations")
-        self.ai_host = QLineEdit()
+        self._ai_loading = False
+        self.ai_provider = QComboBox()
+        for preset in PROVIDERS:
+            self.ai_provider.addItem(preset.label, preset.key)
+        self.ai_provider.currentIndexChanged.connect(self._ai_provider_changed)
+        self.ai_endpoint = QLineEdit()
+        self.ai_endpoint.setPlaceholderText("https://api.example.com/v1/chat/completions")
         self.ai_model = QLineEdit()
+        self.ai_api_key = QLineEdit()
+        self.ai_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ai_api_key.setPlaceholderText("paste a key to store it in the OS vault (never SQLite)")
+        self.ai_key_status = QLabel("")
+        self.ai_key_status.setObjectName("Faint")
+        self.ai_key_status.setWordWrap(True)
+        self.ai_clear_key = QCheckBox("Remove the stored key for this provider")
+        self.ai_test_button = QPushButton("Test provider")
+        self.ai_test_button.clicked.connect(self._test_ai_provider)
+        self.ai_test_status = QLabel("")
+        self.ai_test_status.setObjectName("Faint")
+        self.ai_test_status.setWordWrap(True)
+        self.ai_provider_note = QLabel("")
+        self.ai_provider_note.setObjectName("Faint")
+        self.ai_provider_note.setWordWrap(True)
         save_button = QPushButton("Save settings")
         save_button.setObjectName("Primary")
         save_button.clicked.connect(self.save)
@@ -100,9 +126,25 @@ class SettingsPage(QWidget):
 
         ai_group = QGroupBox("Optional AI")
         ai_layout = QFormLayout(ai_group)
-        ai_layout.addRow(self.ai_enabled)
-        ai_layout.addRow("Endpoint", self.ai_host)
+        ai_layout.addRow("Provider", self.ai_provider)
+        ai_layout.addRow(self.ai_provider_note)
+        ai_layout.addRow("Endpoint", self.ai_endpoint)
         ai_layout.addRow("Model", self.ai_model)
+        ai_layout.addRow("API key", self.ai_api_key)
+        ai_layout.addRow(self.ai_key_status)
+        ai_layout.addRow(self.ai_clear_key)
+        ai_test_row = QHBoxLayout()
+        ai_test_row.setContentsMargins(0, 0, 0, 0)
+        ai_test_row.addWidget(self.ai_test_button)
+        ai_test_row.addWidget(self.ai_test_status, 1)
+        ai_layout.addRow(ai_test_row)
+        ai_layout.addRow(
+            _note(
+                "Hosted providers receive only what you send from the assistant. "
+                "API keys are kept in the Windows Credential Manager, and a key is "
+                "never sent over plain HTTP unless the endpoint is this computer (loopback)."
+            )
+        )
 
         storage_group = QGroupBox("Local storage")
         storage_layout = QHBoxLayout(storage_group)
@@ -160,9 +202,19 @@ class SettingsPage(QWidget):
         self.update_feed.setText(self.services.update_feed_url)
         self.update_auto.setChecked(self.services.update_auto_check)
         self.version_label.setText(f"Installed version: {config.APP_VERSION}")
-        self.ai_enabled.setChecked(self.setting("ai.enabled", "0") == "1")
-        self.ai_host.setText(self.setting("ai.host", "http://127.0.0.1:11434") or "")
-        self.ai_model.setText(self.setting("ai.model", "llama3.1") or "")
+        ai = self.services.ai_config
+        self._ai_loading = True
+        try:
+            index = self.ai_provider.findData(ai.provider)
+            self.ai_provider.setCurrentIndex(index if index >= 0 else 0)
+            self.ai_endpoint.setText(ai.endpoint)
+            self.ai_model.setText(ai.model)
+            self.ai_api_key.clear()
+            self.ai_clear_key.setChecked(False)
+        finally:
+            self._ai_loading = False
+        self._refresh_ai_provider_note()
+        self._refresh_ai_key_state()
         self.paths_label.setText(
             f"Database: {self.services.paths.database}\nLogs: {self.services.paths.logs}\n"
             f"Exports: {self.services.paths.exports}"
@@ -170,6 +222,8 @@ class SettingsPage(QWidget):
 
     def save(self) -> None:
         database = self.services.database
+        if not self._save_ai_settings():
+            return
         database.set_setting("policy.allow_destructive", "1" if self.allow_destructive.isChecked() else "0")
         database.set_setting(
             "policy.confirm_state_changes", "1" if self.confirm_state_changes.isChecked() else "0"
@@ -190,16 +244,6 @@ class SettingsPage(QWidget):
         self.services.save_update_feed_url(self.update_feed.text())
         self.services.save_update_auto_check(self.update_auto.isChecked())
 
-        database.set_setting("ai.enabled", "1" if self.ai_enabled.isChecked() else "0")
-        database.set_setting("ai.host", self.ai_host.text().strip())
-        database.set_setting("ai.model", self.ai_model.text().strip())
-        if self.ai_enabled.isChecked():
-            self.services.models.configure(
-                OllamaModel(model=self.ai_model.text().strip() or "llama3.1", host=self.ai_host.text().strip())
-            )
-        else:
-            self.services.models.configure(NullModel())
-
         self.services.audit.record(
             "policy",
             "settings.saved",
@@ -209,12 +253,138 @@ class SettingsPage(QWidget):
                 "allow_destructive": self.allow_destructive.isChecked(),
                 "allow_intrusive": self.allow_intrusive.isChecked(),
                 "relay_destinations": destinations,
-                "ai_enabled": self.ai_enabled.isChecked(),
+                "ai_provider": self.ai_provider.currentData(),
+                "ai_enabled": self.ai_provider.currentData() != "disabled",
                 "theme": str(theme),
                 "update_auto_check": self.update_auto.isChecked(),
             },
         )
         QMessageBox.information(self, "Settings saved", "Settings were updated.")
+
+    # -- optional AI --------------------------------------------------------
+    def _ai_provider_changed(self, _index: int | None = None) -> None:
+        if self._ai_loading:
+            return
+        preset = preset_for(str(self.ai_provider.currentData() or "disabled"))
+        self.ai_endpoint.setText(preset.endpoint)
+        self.ai_model.setText(preset.model)
+        self.ai_api_key.clear()
+        self.ai_clear_key.setChecked(False)
+        self.ai_test_status.clear()
+        self._refresh_ai_provider_note()
+        self._refresh_ai_key_state()
+
+    def _refresh_ai_provider_note(self) -> None:
+        preset = preset_for(str(self.ai_provider.currentData() or "disabled"))
+        self.ai_provider_note.setText(preset.note)
+        enabled = preset.key != "disabled"
+        for widget in (
+            self.ai_endpoint,
+            self.ai_model,
+            self.ai_api_key,
+            self.ai_clear_key,
+            self.ai_test_button,
+        ):
+            widget.setEnabled(enabled)
+        if not enabled:
+            self.ai_key_status.setText("")
+            self.ai_test_status.setText("")
+
+    def _refresh_ai_key_state(self) -> None:
+        preset = preset_for(str(self.ai_provider.currentData() or "disabled"))
+        if preset.key == "disabled":
+            self.ai_key_status.setText("")
+            self.ai_clear_key.setEnabled(False)
+            return
+        stored = self.services.ai_key_configured(preset.key)
+        if preset.requires_key:
+            self.ai_key_status.setText(
+                "A key is stored in the Windows Credential Manager."
+                if stored
+                else "No key is stored - this provider cannot be used until you save one."
+            )
+        else:
+            self.ai_key_status.setText(
+                "A key is stored in the Windows Credential Manager."
+                if stored
+                else "No API key is required; an optional key can still be stored."
+            )
+        self.ai_clear_key.setEnabled(stored)
+        if not stored:
+            self.ai_clear_key.setChecked(False)
+
+    def _ai_config_from_form(self) -> tuple[AIConfig, str]:
+        provider = str(self.ai_provider.currentData() or "disabled")
+        preset = preset_for(provider)
+        endpoint = self.ai_endpoint.text().strip()
+        model = self.ai_model.text().strip()
+        typed = self.ai_api_key.text().strip()
+        clear = self.ai_clear_key.isChecked()
+        if provider == "disabled":
+            return AIConfig(provider="disabled"), ""
+        if not model:
+            raise ValueError("enter a model name")
+        stored = "" if clear else self.services.ai_api_key(provider)
+        key = typed or stored
+        validate_endpoint(endpoint, has_secret=bool(key))
+        # Removing a stored key is allowed; the provider then shows as "not
+        # ready" until a new key is entered. It is not silently switched off.
+        if preset.requires_key and not key and not clear:
+            raise ValueError(f"{preset.label} requires an API key")
+        return AIConfig(provider=provider, endpoint=endpoint, model=model), key
+
+    def _save_ai_settings(self) -> bool:
+        try:
+            config, key = self._ai_config_from_form()
+            if config.enabled and key:
+                build_model(config, api_key=key)  # validate before persisting anything
+        except ValueError as exc:
+            QMessageBox.warning(self, "Check the AI settings", str(exc))
+            return False
+
+        typed = self.ai_api_key.text().strip()
+        if typed:
+            self.services.save_ai_api_key(config.provider, typed)
+        elif self.ai_clear_key.isChecked():
+            self.services.clear_ai_api_key(config.provider)
+        database = self.services.database
+        database.set_setting("ai.provider", config.provider)
+        database.set_setting("ai.endpoint", config.endpoint)
+        database.set_setting("ai.model", config.model)
+        database.set_setting("ai.enabled", "1" if config.enabled else "0")
+        self.services.configure_ai_from_settings()
+        self.ai_api_key.clear()
+        self.ai_clear_key.setChecked(False)
+        self._refresh_ai_key_state()
+        return True
+
+    def _test_ai_provider(self) -> None:
+        try:
+            config, key = self._ai_config_from_form()
+            if not config.enabled:
+                self.ai_test_status.setText("Select a provider first.")
+                return
+            provider = build_model(config, api_key=key)
+        except ValueError as exc:
+            self.ai_test_status.setText(str(exc))
+            return
+        self.ai_test_button.setEnabled(False)
+        self.ai_test_status.setText(f"Testing {config.label}...")
+        run_async(
+            provider.probe,
+            on_result=lambda available: self._ai_tested(config.label, available),
+            on_error=lambda message, _detail: self._ai_tested(config.label, False, message),
+        )
+
+    def _ai_tested(self, label: str, available: bool, message: str = "") -> None:
+        self.ai_test_button.setEnabled(True)
+        if available:
+            self.ai_test_status.setText(f"{label}: reachable.")
+        else:
+            self.ai_test_status.setText(
+                f"{label}: no answer{(': ' + message) if message else ''}. "
+                "Saved settings are unchanged; deterministic features remain available."
+            )
 
     # -- appearance ---------------------------------------------------------
     def _theme_selected(self, _index: int) -> None:

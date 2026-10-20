@@ -13,7 +13,7 @@
 ; %LOCALAPPDATA%\NexusRemote untouched on uninstall.
 
 #define AppName "Nexus Remote"
-#define AppVersion "0.2.0"
+#define AppVersion "0.3.0"
 #define AppPublisher "NexusRemote"
 #define AppExeName "NexusRemote.exe"
 #define AppId "{{6F1F0F2C-6E31-4A70-9A5B-6B9A1C2D4E01}"

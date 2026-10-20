@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 
 class ModelUnavailable(RuntimeError):
@@ -57,6 +57,71 @@ class NullModel(AssistantModel):
         raise ModelUnavailable("AI assistance is disabled; deterministic features remain available")
 
 
+def _error_detail(raw: bytes) -> str:
+    """Extract a short, safe provider error message without echoing secrets."""
+
+    try:
+        text = raw.decode("utf-8", errors="replace")
+    except Exception:  # pragma: no cover - defensive
+        return ""
+    try:
+        body = json.loads(text)
+    except (TypeError, ValueError):
+        return _CONTROL_CHARS.sub("", text).strip()[:240]
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("type") or ""
+        else:
+            message = error or body.get("message") or ""
+        return _CONTROL_CHARS.sub("", str(message)).strip()[:240]
+    return ""
+
+
+def _request_json(
+    url: str,
+    *,
+    provider: str,
+    payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float = 60.0,
+    method: str = "POST",
+) -> dict[str, Any]:
+    """Perform one bounded JSON request and surface a useful error."""
+
+    data = None
+    request_headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        request_headers["Content-Type"] = "application/json"
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+    label = provider or "AI provider"
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read(2_000_000)
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = _error_detail(exc.read(4096))
+        except Exception:  # pragma: no cover - response may be unreadable
+            detail = ""
+        message = f"{label} returned HTTP {exc.code}"
+        if detail:
+            message += f": {detail}"
+        raise ModelUnavailable(message) from exc
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise ModelUnavailable(f"{label} did not answer: {exc}") from exc
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ModelUnavailable(f"{label} returned a non-JSON response") from exc
+    if not isinstance(body, dict):
+        raise ModelUnavailable(f"{label} returned an unexpected response")
+    return body
+
+
 class OllamaModel(AssistantModel):
     """Local inference through an Ollama-compatible HTTP endpoint."""
 
@@ -69,11 +134,14 @@ class OllamaModel(AssistantModel):
         *,
         timeout: float = 30.0,
         probe_timeout: float = 0.6,
+        provider_name: str | None = None,
     ) -> None:
         self.model = model
         self.host = host.rstrip("/")
         self.timeout = timeout
         self.probe_timeout = probe_timeout
+        if provider_name:
+            self.name = provider_name
 
     def available(self) -> bool:
         try:
@@ -82,22 +150,276 @@ class OllamaModel(AssistantModel):
         except (urllib.error.URLError, OSError, ValueError):
             return False
 
+    def probe(self) -> bool:
+        return self.available()
+
     def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
         payload = {"model": self.model, "prompt": prompt, "stream": False}
         if system:
             payload["system"] = system
-        request = urllib.request.Request(
+        body = _request_json(
             f"{self.host}/api/generate",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+            provider="Ollama",
+            payload=payload,
+            timeout=self.timeout,
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            raise ModelUnavailable(f"local model did not answer: {exc}") from exc
         return ModelResponse(text=str(body.get("response", "")), provider=self.name, model=self.model)
+
+
+def _openai_text(body: dict[str, Any]) -> str:
+    """Read either the modern content-parts shape or a plain string."""
+
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first = choices[0] if isinstance(choices[0], dict) else {}
+    message = first.get("message") if isinstance(first.get("message"), dict) else {}
+    content = message.get("content", first.get("text", ""))
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        pieces: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                pieces.append(part["text"])
+        return "\n".join(pieces)
+    return ""
+
+
+class OpenAICompatibleModel(AssistantModel):
+    """OpenAI Chat Completions, including OpenChat/OpenRouter/LM Studio/vLLM."""
+
+    name = "openai"
+
+    def __init__(
+        self,
+        model: str,
+        endpoint: str,
+        api_key: str = "",
+        *,
+        timeout: float = 60.0,
+        provider_name: str | None = None,
+        max_tokens: int = 900,
+        token_field: str = "max_tokens",
+    ) -> None:
+        self.model = model
+        self.endpoint = endpoint
+        self._api_key = api_key
+        self.timeout = timeout
+        self.max_tokens = max_tokens
+        # OpenAI's newer and Codex-family models use max_completion_tokens;
+        # compatible local servers generally expect max_tokens.
+        self.token_field = token_field
+        if provider_name:
+            self.name = provider_name
+
+    def _headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
+
+    def available(self) -> bool:
+        return bool(self.endpoint and self.model)
+
+    def probe(self) -> bool:
+        """Check the provider's model list endpoint (only on an explicit test)."""
+
+        if not self.available():
+            return False
+        url = self.endpoint
+        if url.endswith("/chat/completions"):
+            url = url[: -len("/chat/completions")] + "/models"
+        else:
+            return True  # non-standard path: do not guess another endpoint
+        try:
+            _request_json(
+                url,
+                provider=self.name,
+                headers=self._headers(),
+                timeout=min(self.timeout, 15.0),
+                method="GET",
+            )
+            return True
+        except ModelUnavailable:
+            return False
+
+    def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        body = _request_json(
+            self.endpoint,
+            provider=self.name,
+            payload={
+                "model": self.model,
+                "messages": messages,
+                self.token_field: self.max_tokens,
+                "stream": False,
+            },
+            headers=self._headers(),
+            timeout=self.timeout,
+        )
+        return ModelResponse(
+            text=_openai_text(body), provider=self.name, model=self.model
+        )
+
+
+class AnthropicModel(AssistantModel):
+    """Anthropic Messages API (Claude)."""
+
+    name = "anthropic"
+    api_version = "2023-06-01"
+
+    def __init__(
+        self,
+        model: str,
+        endpoint: str = "https://api.anthropic.com/v1/messages",
+        api_key: str = "",
+        *,
+        timeout: float = 60.0,
+        provider_name: str | None = None,
+        max_tokens: int = 900,
+    ) -> None:
+        self.model = model
+        self.endpoint = endpoint
+        self._api_key = api_key
+        self.timeout = timeout
+        self.max_tokens = max_tokens
+        if provider_name:
+            self.name = provider_name
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "x-api-key": self._api_key,
+            "anthropic-version": self.api_version,
+        }
+
+    def available(self) -> bool:
+        return bool(self.endpoint and self.model and self._api_key)
+
+    def probe(self) -> bool:
+        if not self.available():
+            return False
+        url = self.endpoint
+        if url.endswith("/messages"):
+            url = url[: -len("/messages")] + "/models"
+        else:
+            return True
+        try:
+            _request_json(
+                url,
+                provider=self.name,
+                headers=self._headers(),
+                timeout=min(self.timeout, 15.0),
+                method="GET",
+            )
+            return True
+        except ModelUnavailable:
+            return False
+
+    def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system:
+            payload["system"] = system
+        body = _request_json(
+            self.endpoint,
+            provider=self.name,
+            payload=payload,
+            headers=self._headers(),
+            timeout=self.timeout,
+        )
+        pieces: list[str] = []
+        content = body.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    pieces.append(part["text"])
+        return ModelResponse(
+            text="\n".join(pieces), provider=self.name, model=self.model
+        )
+
+
+class GeminiModel(AssistantModel):
+    """Google Gemini generateContent API."""
+
+    name = "gemini"
+
+    def __init__(
+        self,
+        model: str,
+        endpoint: str,
+        api_key: str = "",
+        *,
+        timeout: float = 60.0,
+        provider_name: str | None = None,
+        max_tokens: int = 900,
+    ) -> None:
+        self.model = model
+        self.endpoint = endpoint.replace("{model}", model)
+        self._api_key = api_key
+        self.timeout = timeout
+        self.max_tokens = max_tokens
+        if provider_name:
+            self.name = provider_name
+
+    def _headers(self) -> dict[str, str]:
+        return {"x-goog-api-key": self._api_key}
+
+    def available(self) -> bool:
+        return bool(self.endpoint and self.model and self._api_key)
+
+    def probe(self) -> bool:
+        if not self.available():
+            return False
+        marker = "/models/"
+        if marker in self.endpoint:
+            url = self.endpoint.split(marker, 1)[0] + "/models"
+        else:
+            return True
+        try:
+            _request_json(
+                url,
+                provider=self.name,
+                headers=self._headers(),
+                timeout=min(self.timeout, 15.0),
+                method="GET",
+            )
+            return True
+        except ModelUnavailable:
+            return False
+
+    def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
+        payload: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": self.max_tokens},
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+        body = _request_json(
+            self.endpoint,
+            provider=self.name,
+            payload=payload,
+            headers=self._headers(),
+            timeout=self.timeout,
+        )
+        pieces: list[str] = []
+        candidates = body.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            content = candidates[0].get("content") if isinstance(candidates[0], dict) else {}
+            parts = content.get("parts") if isinstance(content, dict) else []
+            if isinstance(parts, list):
+                for part in parts:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        pieces.append(part["text"])
+        return ModelResponse(
+            text="\n".join(pieces), provider=self.name, model=self.model
+        )
 
 
 class ScriptedModel(AssistantModel):

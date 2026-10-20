@@ -25,6 +25,7 @@ from nexus_remote.ui.commands_page import CommandsPage
 from nexus_remote.ui.dashboard import DashboardPage
 from nexus_remote.ui.device_manager import DeviceManagerPage
 from nexus_remote.ui.diagnostics_view import DiagnosticsPage
+from nexus_remote.ui.powershell_page import PowerShellPage
 from nexus_remote.ui.security_center import SecurityCenter
 from nexus_remote.ui.settings_view import SettingsPage
 from nexus_remote.ui.tasks import run_async
@@ -36,6 +37,7 @@ PAGES = (
     ("Dashboard", "Inventory and session health"),
     ("Devices", "Saved device profiles and connection settings"),
     ("Workspace", "Sessions, terminal with assistant, files and remote desktop"),
+    ("PowerShell", "Local PowerShell console on this computer"),
     ("Commands", "Save and reuse commands per environment"),
     ("Diagnostics", "Connectivity checks and evidence"),
     ("Security", "Credentials, host keys and audit trail"),
@@ -93,6 +95,7 @@ class MainWindow(QMainWindow):
         self.dashboard = DashboardPage(services)
         self.devices = DeviceManagerPage(services)
         self.workspace = WorkspacePage(services)
+        self.powershell = PowerShellPage(services)
         self.commands = CommandsPage(services)
         self.diagnostics = DiagnosticsPage(services)
         self.security = SecurityCenter(services)
@@ -102,6 +105,7 @@ class MainWindow(QMainWindow):
             self.dashboard,
             self.devices,
             self.workspace,
+            self.powershell,
             self.commands,
             self.diagnostics,
             self.security,
@@ -126,6 +130,7 @@ class MainWindow(QMainWindow):
             _action("New connection", lambda: self._go_to(PAGE_INDEX["Workspace"]), menu)
         )
         menu.addAction(_action("Assistant beside terminal", self._show_assistant, menu))
+        menu.addAction(_action("Local PowerShell", lambda: self._go_to(PAGE_INDEX["PowerShell"]), menu))
         menu.addAction(_action("Saved commands", lambda: self._go_to(PAGE_INDEX["Commands"]), menu))
         menu.addAction(_action("Run diagnostics", lambda: self._go_to(PAGE_INDEX["Diagnostics"]), menu))
         menu.addAction(_action("Security Center", lambda: self._go_to(PAGE_INDEX["Security"]), menu))
@@ -293,6 +298,7 @@ class MainWindow(QMainWindow):
         active = self.services.sessions.count_active()
         if active:
             self._set_status(f"closing {active} session(s)…")
+        self.powershell.shutdown()
         self.services.close()
         super().closeEvent(event)
 
