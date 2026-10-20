@@ -99,6 +99,7 @@ def test_control_c_interrupts_a_running_powershell_command():
         pytest.skip("no PowerShell installed")
 
     marker = f"NEXUS_CTRLC_{uuid.uuid4().hex}"
+    ready = f"NEXUS_READY_{uuid.uuid4().hex}"
     channel = PtyChannel.spawn(
         option.executable,
         rows=24,
@@ -106,19 +107,26 @@ def test_control_c_interrupts_a_running_powershell_command():
         arguments=("-NoProfile",),
     )
     try:
-        channel.write("Start-Sleep -Seconds 30\r")
-        deadline = time.monotonic() + 10
+        # Wait for a real prompt before typing: echoed keystrokes appear before
+        # PowerShell is ready to execute them, which made this test racy on a
+        # cold start.
+        channel.write(f"Write-Output {ready}\r")
+        deadline = time.monotonic() + 20
         seen = b""
         while time.monotonic() < deadline:
             chunk = channel.read(timeout=0.2)
             if chunk:
                 seen += chunk
-            if b"Start-Sleep" in seen:
+            if ready.encode() in seen:
                 break
+        assert ready.encode() in seen, seen[-2000:].decode("utf-8", "replace")
+
+        channel.write("Start-Sleep -Seconds 30\r")
+        time.sleep(1.0)  # let the command start before interrupting it
         # Ctrl+C is ETX on a terminal. If it is not delivered as a real
         # interrupt, the marker below waits behind the 30-second sleep.
         channel.write(b"\x03")
-        time.sleep(0.2)
+        time.sleep(0.3)
         channel.write(f"Write-Output {marker}\r")
         deadline = time.monotonic() + 15
         received = b""

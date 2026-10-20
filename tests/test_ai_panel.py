@@ -80,6 +80,7 @@ def test_settings_offers_hosted_and_local_providers(app, services):
         "openai",
         "anthropic",
         "gemini",
+        "opencode_go",
         "openai_compatible",
     ]
 

@@ -228,6 +228,8 @@ class OpenAICompatibleModel(AssistantModel):
         provider_name: str | None = None,
         max_tokens: int = 900,
         token_field: str = "max_tokens",
+        session_header: str = "",
+        session_id: str = "",
     ) -> None:
         self.model = model
         self.endpoint = endpoint
@@ -237,6 +239,11 @@ class OpenAICompatibleModel(AssistantModel):
         # OpenAI's newer and Codex-family models use max_completion_tokens;
         # compatible local servers generally expect max_tokens.
         self.token_field = token_field
+        # Gateways such as OpenCode Go ask for a stable conversation id so they
+        # can route and cache prompts; it is only sent when the provider wants
+        # it.
+        self.session_header = session_header
+        self.session_id = session_id
         if provider_name:
             self.name = provider_name
 
@@ -244,6 +251,8 @@ class OpenAICompatibleModel(AssistantModel):
         headers: dict[str, str] = {}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        if self.session_header and self.session_id:
+            headers[self.session_header] = self.session_id
         return headers
 
     def available(self) -> bool:

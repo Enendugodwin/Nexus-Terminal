@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+import uuid
 
 from nexus_remote.assistant.model_adapters import (
     AnthropicModel,
@@ -86,6 +87,17 @@ PROVIDERS: tuple[ProviderPreset, ...] = (
         requires_key=True,
         note="Uses the Gemini generateContent API. The key is stored in the OS vault.",
         api_style="gemini",
+    ),
+    ProviderPreset(
+        key="opencode_go",
+        label="OpenCode Go (subscription)",
+        endpoint="https://opencode.ai/inference/go/openai/v1/chat/completions",
+        model="deepseek-v4.1-flash",
+        requires_key=True,
+        note=(
+            "Uses the OpenCode Go / Go Plus subscription allowance. The pay-as-you-go "
+            "Console models use a different path (/inference/openai/v1) and a separate balance."
+        ),
     ),
     ProviderPreset(
         key="openai_compatible",
@@ -231,6 +243,9 @@ def build_model(
         )
     if preset.requires_key and not api_key:
         raise ValueError("this provider requires an API key")
+    # The OpenCode gateways (Go and Console) ask for a stable per-conversation
+    # id so they can route and cache prompts.
+    opencode_gateway = "opencode.ai/inference/" in endpoint
     return OpenAICompatibleModel(
         model=model_name,
         endpoint=endpoint,
@@ -240,4 +255,6 @@ def build_model(
         token_field=(
             "max_completion_tokens" if preset.key == "openai" else "max_tokens"
         ),
+        session_header="x-opencode-session" if opencode_gateway else "",
+        session_id=uuid.uuid4().hex if opencode_gateway else "",
     )

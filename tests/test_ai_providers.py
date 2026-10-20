@@ -309,3 +309,38 @@ def test_a_local_compatible_endpoint_works_without_any_key(services, monkeypatch
 
     assert services.models.complete("hello").text == "ok"
     assert "Authorization" not in captured["headers"]
+
+
+def test_opencode_go_is_a_first_class_provider():
+    """The Go subscription and the Console balance are different endpoints."""
+
+    preset = preset_for("opencode_go")
+    assert preset.label.startswith("OpenCode Go")
+    assert preset.requires_key is True
+    assert "/inference/go/openai/v1/chat/completions" in preset.endpoint
+    assert preset.model
+
+
+def test_the_opencode_gateway_gets_a_stable_session_header():
+    model = build_model(
+        AIConfig(
+            "opencode_go",
+            "https://opencode.ai/inference/go/openai/v1/chat/completions",
+            "deepseek-v4.1-flash",
+        ),
+        api_key="go-key",
+    )
+    assert model.session_header == "x-opencode-session"
+    assert model.session_id
+    headers = model._headers()
+    assert headers["Authorization"] == "Bearer go-key"
+    assert headers["x-opencode-session"] == model.session_id
+
+
+def test_other_providers_do_not_send_the_opencode_session_header():
+    model = build_model(
+        AIConfig("openai", "https://api.openai.com/v1/chat/completions", "gpt-test"),
+        api_key="sk-test",
+    )
+    assert model.session_header == ""
+    assert "x-opencode-session" not in model._headers()

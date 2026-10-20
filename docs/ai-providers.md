@@ -15,10 +15,28 @@ stored key** to delete it.
 | Provider | Default endpoint | Key |
 | --- | --- | --- |
 | Ollama | `http://127.0.0.1:11434/api/generate` | not required |
+| OpenCode Go / Go Plus | `https://opencode.ai/inference/go/openai/v1/chat/completions` | required (your Go key) |
 | OpenAI (GPT / Codex models) | `https://api.openai.com/v1/chat/completions` | required |
 | Anthropic (Claude) | `https://api.anthropic.com/v1/messages` | required |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` | required |
 | OpenAI-compatible | `http://127.0.0.1:1234/v1/chat/completions` | optional |
+
+### OpenCode Go versus OpenCode Console
+
+They are two different products with two different balances and two different
+paths:
+
+- **Go / Go Plus** (monthly subscription):
+  `https://opencode.ai/inference/go/openai/v1/chat/completions`
+- **Console** (pay-as-you-go credits):
+  `https://opencode.ai/inference/openai/v1/chat/completions`
+
+A Go key used against the Console path answers
+`HTTP 402: Upstream request failed: Insufficient account funds`, even when the Go
+subscription is healthy - that balance is empty. Use the **OpenCode Go** preset
+above; the app adds the `x-opencode-session` header that Go asks for. Free
+models (`*-free`) are reserved for the OpenCode app itself and answer
+`FreeTierError` to every other client.
 
 The OpenAI-compatible adapter works with OpenChat servers, OpenRouter, LM Studio,
 vLLM, LocalAI and other services that implement
@@ -80,8 +98,10 @@ command, read credentials or call tools.
 | Symptom | Check |
 | --- | --- |
 | "No AI provider is ready" | Choose a provider, enter its key and save. |
-| HTTP 401 / 403 | Read the reason the app shows. A key can be valid but the plan can forbid third-party clients: OpenCode's free tier, for example, only answers requests made from inside the OpenCode app and rejects every other client with `FreeTierError`. Use a paid key, a different provider, or a local model. |
-| HTTP 404 | The endpoint path or model name is wrong. |
+| HTTP 401 / 403 | Read the reason the app shows. A key can be valid but the plan can forbid third-party clients: OpenCode's free models, for example, only answer requests made from inside the OpenCode app and reject every other client with `FreeTierError`. |
+| HTTP 402 "Insufficient account funds" with an OpenCode key | You are on the OpenCode **Console** path with an empty pay-as-you-go balance. If you pay for **Go**, switch to the **OpenCode Go** preset (the `/inference/go/...` endpoint); the two balances are separate. |
+| HTTP 429 "Endpoint is unavailable" | The gateway was briefly busy; retry. Persistent 429 means the Go allowance or rate limit is exhausted. |
+| HTTP 404 | The endpoint path or model name is wrong. `GET https://opencode.ai/inference/go/v1/models` lists the model ids a Go key may use. |
 | "refusing to send an API key over plain HTTP" | Use HTTPS or a loopback endpoint. |
 | Ollama "not reachable" | Is Ollama running, and is the host/port correct? |
 | The provider answers in a browser but not here | Some gateways pin the browser signature or the plan to one client. The app sends a normal JSON request; if the provider refuses it, use another endpoint. |
