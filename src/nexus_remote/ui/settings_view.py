@@ -379,12 +379,15 @@ class SettingsPage(QWidget):
     def _ai_tested(self, label: str, available: bool, message: str = "") -> None:
         self.ai_test_button.setEnabled(True)
         if available:
-            self.ai_test_status.setText(f"{label}: reachable.")
-        else:
             self.ai_test_status.setText(
-                f"{label}: no answer{(': ' + message) if message else ''}. "
-                "Saved settings are unchanged; deterministic features remain available."
+                f"{label}: reachable - the provider answered a test request."
             )
+            return
+        reason = (message or "").strip()
+        self.ai_test_status.setText(
+            f"{label}: failed{(' - ' + reason) if reason else ''}. "
+            "Saved settings are unchanged; deterministic features remain available."
+        )
 
     # -- appearance ---------------------------------------------------------
     def _theme_selected(self, _index: int) -> None:

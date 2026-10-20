@@ -16,6 +16,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from nexus_remote.config import APP_NAME, APP_VERSION
+
+#: Some providers sit behind bot protection that rejects the default
+#: ``Python-urllib`` agent outright (Cloudflare answers with "Error 1010:
+#: browser signature banned"). The app identifies itself honestly instead.
+USER_AGENT = f"{APP_NAME.replace(' ', '-')}/{APP_VERSION}"
+
 
 class ModelUnavailable(RuntimeError):
     """Raised when a provider is not configured or not reachable."""
@@ -52,6 +59,11 @@ class NullModel(AssistantModel):
 
     def available(self) -> bool:
         return False
+
+    def probe(self) -> bool:
+        raise ModelUnavailable(
+            "AI assistance is disabled; choose a provider in Settings > Optional AI"
+        )
 
     def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
         raise ModelUnavailable("AI assistance is disabled; deterministic features remain available")
@@ -90,7 +102,10 @@ def _request_json(
     """Perform one bounded JSON request and surface a useful error."""
 
     data = None
-    request_headers = {"Accept": "application/json"}
+    request_headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+    }
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         request_headers["Content-Type"] = "application/json"
@@ -145,13 +160,25 @@ class OllamaModel(AssistantModel):
 
     def available(self) -> bool:
         try:
-            with urllib.request.urlopen(f"{self.host}/api/tags", timeout=self.probe_timeout):
+            request = urllib.request.Request(
+                f"{self.host}/api/tags", headers={"User-Agent": USER_AGENT}
+            )
+            with urllib.request.urlopen(request, timeout=self.probe_timeout):
                 return True
         except (urllib.error.URLError, OSError, ValueError):
             return False
 
     def probe(self) -> bool:
-        return self.available()
+        """Check that Ollama is running and serving the model."""
+
+        try:
+            with urllib.request.urlopen(
+                f"{self.host}/api/tags", timeout=max(self.probe_timeout, 1.0)
+            ) as response:
+                response.read(1)
+            return True
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            raise ModelUnavailable(f"Ollama did not answer at {self.host}: {exc}") from exc
 
     def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
         payload = {"model": self.model, "prompt": prompt, "stream": False}
@@ -223,26 +250,24 @@ class OpenAICompatibleModel(AssistantModel):
         return bool(self.endpoint and self.model)
 
     def probe(self) -> bool:
-        """Check the provider's model list endpoint (only on an explicit test)."""
+        """Ask the provider the same question the assistant would ask.
+
+        A model list can answer while completions fail - a plan restriction, a
+        wrong path or a rejected key - so the test uses the completion route
+        and reports the provider's own reason when it refuses.
+        """
 
         if not self.available():
-            return False
-        url = self.endpoint
-        if url.endswith("/chat/completions"):
-            url = url[: -len("/chat/completions")] + "/models"
-        else:
-            return True  # non-standard path: do not guess another endpoint
-        try:
-            _request_json(
-                url,
-                provider=self.name,
-                headers=self._headers(),
-                timeout=min(self.timeout, 15.0),
-                method="GET",
+            raise ModelUnavailable(
+                "the endpoint or the model name is empty; fill in both before testing"
             )
-            return True
-        except ModelUnavailable:
-            return False
+        original = self.max_tokens
+        self.max_tokens = 16
+        try:
+            self.complete("ping", system="Reply with the single word: ok")
+        finally:
+            self.max_tokens = original
+        return True
 
     def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
         messages: list[dict[str, str]] = []
@@ -300,24 +325,19 @@ class AnthropicModel(AssistantModel):
         return bool(self.endpoint and self.model and self._api_key)
 
     def probe(self) -> bool:
+        """Send a minimal message so the reason for a refusal is reported."""
+
         if not self.available():
-            return False
-        url = self.endpoint
-        if url.endswith("/messages"):
-            url = url[: -len("/messages")] + "/models"
-        else:
-            return True
-        try:
-            _request_json(
-                url,
-                provider=self.name,
-                headers=self._headers(),
-                timeout=min(self.timeout, 15.0),
-                method="GET",
+            raise ModelUnavailable(
+                "the endpoint, model or API key is missing; fill in all three before testing"
             )
-            return True
-        except ModelUnavailable:
-            return False
+        original = self.max_tokens
+        self.max_tokens = 16
+        try:
+            self.complete("ping", system="Reply with the single word: ok")
+        finally:
+            self.max_tokens = original
+        return True
 
     def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
         payload: dict[str, Any] = {
@@ -375,24 +395,19 @@ class GeminiModel(AssistantModel):
         return bool(self.endpoint and self.model and self._api_key)
 
     def probe(self) -> bool:
+        """Send a minimal generation so the reason for a refusal is reported."""
+
         if not self.available():
-            return False
-        marker = "/models/"
-        if marker in self.endpoint:
-            url = self.endpoint.split(marker, 1)[0] + "/models"
-        else:
-            return True
-        try:
-            _request_json(
-                url,
-                provider=self.name,
-                headers=self._headers(),
-                timeout=min(self.timeout, 15.0),
-                method="GET",
+            raise ModelUnavailable(
+                "the endpoint, model or API key is missing; fill in all three before testing"
             )
-            return True
-        except ModelUnavailable:
-            return False
+        original = self.max_tokens
+        self.max_tokens = 16
+        try:
+            self.complete("ping", system="Reply with the single word: ok")
+        finally:
+            self.max_tokens = original
+        return True
 
     def complete(self, prompt: str, *, system: str | None = None) -> ModelResponse:
         payload: dict[str, Any] = {

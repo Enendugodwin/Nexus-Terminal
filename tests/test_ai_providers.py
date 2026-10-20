@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import urllib.error
+
 import pytest
 
 from nexus_remote.assistant import model_adapters
@@ -168,3 +171,95 @@ def test_api_key_is_stored_in_the_vault_not_the_database(services):
 
     services.clear_ai_api_key("openai")
     assert services.ai_api_key("openai") == ""
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def read(self, *_args: int) -> bytes:
+        return self._body
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        return False
+
+
+def test_requests_identify_the_app_instead_of_python_urllib(monkeypatch):
+    """Bot protection rejects the default urllib agent (Cloudflare error 1010)."""
+
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["headers"] = {key.lower(): value for key, value in request.header_items()}
+        return _FakeResponse(b'{"choices": [{"message": {"content": "ok"}}]}')
+
+    monkeypatch.setattr(model_adapters.urllib.request, "urlopen", fake_urlopen)
+    model = OpenAICompatibleModel("m", "https://example.test/v1/chat/completions", "k")
+
+    assert model.complete("hello").text == "ok"
+    agent = captured["headers"]["user-agent"]
+    assert "python-urllib" not in agent.lower()
+    assert "nexus" in agent.lower()
+
+
+def test_a_refused_provider_reports_its_own_reason(monkeypatch):
+    """The Settings test must show why the provider said no, not "no answer"."""
+
+    def fake_urlopen(request, timeout=None):
+        raise urllib.error.HTTPError(
+            request.full_url,
+            403,
+            "Forbidden",
+            {},
+            io.BytesIO(
+                b'{"error": {"message": "free tier can only be used inside the vendor app"}}'
+            ),
+        )
+
+    monkeypatch.setattr(model_adapters.urllib.request, "urlopen", fake_urlopen)
+    model = OpenAICompatibleModel("m", "https://example.test/v1/chat/completions", "k")
+
+    with pytest.raises(model_adapters.ModelUnavailable) as excinfo:
+        model.probe()
+    message = str(excinfo.value)
+    assert "403" in message
+    assert "free tier can only be used" in message
+
+
+def test_the_provider_test_uses_the_completion_route(monkeypatch):
+    """A model list can succeed while completions are blocked, so test the real route."""
+
+    calls = []
+
+    def fake_request(url, **kwargs):
+        calls.append((url, kwargs.get("method", "POST")))
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+    model = OpenAICompatibleModel("m", "https://example.test/v1/chat/completions", "k")
+
+    assert model.probe() is True
+    assert calls == [("https://example.test/v1/chat/completions", "POST")]
+    # The real request budget is restored after the minimal test request.
+    assert model.max_tokens == 900
+
+
+def test_the_anthropic_provider_test_reports_a_refusal(monkeypatch):
+    def fake_request(url, **kwargs):
+        raise model_adapters.ModelUnavailable("Anthropic returned HTTP 401: invalid x-api-key")
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+    model = AnthropicModel("claude-test", api_key="bad")
+
+    with pytest.raises(model_adapters.ModelUnavailable) as excinfo:
+        model.probe()
+    assert "invalid x-api-key" in str(excinfo.value)
+    assert model.max_tokens == 900
+
+
+def test_a_disabled_model_refuses_to_be_tested():
+    with pytest.raises(model_adapters.ModelUnavailable, match="disabled"):
+        NullModel().probe()

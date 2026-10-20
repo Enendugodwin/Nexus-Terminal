@@ -25,8 +25,16 @@ vLLM, LocalAI and other services that implement
 `POST /v1/chat/completions`. Set the **full** endpoint URL, not just the host.
 For Gemini, `{model}` in the endpoint is replaced with the model field.
 
-**Test provider** performs one bounded request (for example `GET /v1/models`)
-without saving anything. A failed test leaves the current settings untouched.
+**Test provider** sends one minimal completion request - the same route the
+assistant uses - without saving anything. It asks the provider the question the
+assistant would ask, because some plans answer a model list but refuse
+completions. A failed test leaves the current settings untouched and shows the
+provider's own explanation. For hosted requests that can take a few seconds;
+the app reports the result when the provider answers.
+
+Every request identifies itself honestly as `Nexus-Remote/<version>`; the
+default `Python-urllib` agent is rejected by some bot-protection layers with
+"Error 1010: browser signature banned".
 
 ## Endpoint rules
 
@@ -72,8 +80,9 @@ command, read credentials or call tools.
 | Symptom | Check |
 | --- | --- |
 | "No AI provider is ready" | Choose a provider, enter its key and save. |
-| HTTP 401 / 403 | The key is wrong, expired or lacks access to that model. |
+| HTTP 401 / 403 | Read the reason the app shows. A key can be valid but the plan can forbid third-party clients: OpenCode's free tier, for example, only answers requests made from inside the OpenCode app and rejects every other client with `FreeTierError`. Use a paid key, a different provider, or a local model. |
 | HTTP 404 | The endpoint path or model name is wrong. |
 | "refusing to send an API key over plain HTTP" | Use HTTPS or a loopback endpoint. |
 | Ollama "not reachable" | Is Ollama running, and is the host/port correct? |
+| The provider answers in a browser but not here | Some gateways pin the browser signature or the plan to one client. The app sends a normal JSON request; if the provider refuses it, use another endpoint. |
 | Model answer contains prose | **Insert into shell** only accepts command-looking lines; copy and edit instead. |
