@@ -32,10 +32,12 @@ from PySide6.QtWidgets import (
 from nexus_remote.assistant.autocomplete import SuggestionSource, environment_for_os
 from nexus_remote.connections.interfaces import ConnectionErrorKind, ProtocolError, SessionState
 from nexus_remote.connections.session import Session
+from nexus_remote.diagnostics.sysinfo import SystemInfo, collect_system_info
 from nexus_remote.services import AppServices
 from nexus_remote.ui.assistant_panel import AssistantPanel
 from nexus_remote.ui.command_input import SuggestionLineEdit
 from nexus_remote.ui.commands_page import CommandDialog
+from nexus_remote.ui.system_info import SystemInfoPanel
 from nexus_remote.ui.tasks import Worker, connect_worker
 from nexus_remote.ui.terminal import TerminalView
 
@@ -523,6 +525,9 @@ class WorkspacePage(QWidget):
         self.terminal_view.title_changed.connect(lambda title: self.terminal_status.setText(title))
         self.terminal_view.bell.connect(lambda: self.status_message.emit("terminal bell"))
 
+        self.system_info = SystemInfoPanel()
+        self.system_info.refresh_requested.connect(self._refresh_system_info)
+
         note = QLabel(
             "A real terminal: escape sequences, colours, full-screen programs (top, vim, less) and PTY "
             "resizing are handled locally. Keystrokes go straight to the remote shell, so the policy gate "
@@ -536,6 +541,7 @@ class WorkspacePage(QWidget):
         terminal_layout = QVBoxLayout(terminal_column)
         terminal_layout.setContentsMargins(0, 0, 0, 0)
         terminal_layout.addWidget(self.terminal_view, 1)
+        terminal_layout.addWidget(self.system_info)
         terminal_layout.addWidget(self.terminal_status)
         terminal_layout.addWidget(note)
 
@@ -633,6 +639,7 @@ class WorkspacePage(QWidget):
             environment_for_os(device.operating_system if device else None)
         )
         self.assistant_panel.refresh()
+        self._refresh_system_info()
         self.services.audit.record(
             "session",
             "terminal.opened",
@@ -643,8 +650,61 @@ class WorkspacePage(QWidget):
             detail={"route": session.route.value},
         )
 
+    # -- system information -------------------------------------------------
+    def _refresh_system_info(self) -> None:
+        """Collect CPU/memory/storage/OS/uptime on a worker; never block the UI."""
+        session_id = self.terminal_view.session_id
+        session = self.services.sessions.get(session_id) if session_id else None
+        if session is None or session.adapter is None:
+            self.system_info.reset()
+            return
+        if session.state is not SessionState.CONNECTED:
+            self.system_info.reset("The SSH session is no longer connected.")
+            return
+        self.system_info.set_loading(session.device_name)
+        worker = Worker(collect_system_info, session.adapter)
+        connect_worker(
+            worker,
+            on_result=lambda info: self._on_system_info(session, info),
+            on_error=lambda message, detail: self._on_system_info_error(session, message, detail),
+        )
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_system_info(self, session: Session, info: object) -> None:
+        if self.terminal_view.session_id != session.id:
+            return  # the operator attached another host meanwhile
+        if not isinstance(info, SystemInfo):
+            self._on_system_info_error(session, "unexpected response from the host", "")
+            return
+        self.system_info.show_info(info, session.device_name)
+        self.services.audit.record(
+            "session",
+            "sysinfo.collected",
+            severity="info",
+            outcome="success",
+            device_id=session.device_id,
+            subject=session.endpoint,
+            detail={"hostname": info.hostname, "kernel": info.kernel, "cores": info.cpu_cores},
+        )
+
+    def _on_system_info_error(self, session: Session, message: str, detail: str = "") -> None:
+        if self.terminal_view.session_id != session.id:
+            return
+        text = str(message) or "the host did not answer"
+        self.system_info.show_error(text)
+        self.services.audit.record(
+            "session",
+            "sysinfo.collected",
+            severity="warning",
+            outcome="failure",
+            device_id=session.device_id,
+            subject=session.endpoint,
+            detail={"message": text, "detail": str(detail)[:400]},
+        )
+
     def _on_terminal_closed(self, session_id: str) -> None:
         self.terminal_status.setText("Shell closed.")
+        self.system_info.reset("Terminal closed - attach a shell to read system information.")
         self.assistant_panel.set_context("No terminal attached")
         if session_id:
             session = self.services.sessions.get(session_id)

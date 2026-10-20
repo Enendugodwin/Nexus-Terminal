@@ -8,7 +8,7 @@ and clear seams where a gateway, relay or endpoint agent can be added later.
 ```
 UI (PySide6)
   main_window, dashboard, device_manager, workspace,
-  terminal_view, diagnostics_view, assistant_panel, security_center
+  terminal_view, system_info, diagnostics_view, assistant_panel, security_center
         |
 Services (services.py)
   AppServices: the only object graph; tests build it too
@@ -16,7 +16,7 @@ Services (services.py)
 +----------------+----------------+----------------+----------------+
 | connections    | diagnostics    | assistant      | security       |
 | manager        | dns/tcp/route  | autocomplete   | vault          |
-| session        | interfaces     | history        | audit          |
+| session        | sysinfo        | history        | audit          |
 | routing        | reports        | snippets       | host keys      |
 |                |                | errors         | policy         |
 +----------------+----------------+----------------+----------------+
@@ -56,6 +56,15 @@ characters, application-cursor mode). Resizes are computed from font metrics
 and sent with `resize_pty`. Scrollback is retained in pyte's history buffer;
 selection and clipboard stay local. Remote output is rendered only - it is
 never evaluated.
+
+Under the terminal, `SystemInfoPanel` shows five cards: CPU, memory, storage,
+operating system and uptime. `diagnostics/sysinfo.py` runs one fixed, read-only
+POSIX probe over the same SSH client (`exec_command`) on a worker thread,
+parses the sectioned output into `SystemInfo`, and the panel only formats it.
+The probe is a constant, so it is not routed through the command policy gate;
+the collection is still recorded in the audit log (`sysinfo.collected`). Hosts
+without POSIX tools (for example Windows OpenSSH) show an "unavailable" note
+instead of an error dialog.
 
 ### File manager
 

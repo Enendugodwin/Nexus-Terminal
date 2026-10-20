@@ -127,6 +127,22 @@ def stylesheet() -> str:
         color: {t['text_faint']};
         font-size: 9pt;
     }}
+    #SysCard {{
+        background-color: {t['panel']};
+        border: 1px solid {t['border']};
+        border-radius: 8px;
+    }}
+    #SysTitle {{
+        color: {t['text_muted']};
+        font-size: 8.5pt;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }}
+    #SysValue {{
+        font-size: 12pt;
+        font-weight: 600;
+        color: {t['accent']};
+    }}
     #Mono, QPlainTextEdit#Mono, QTextEdit#Mono, QLineEdit#Mono {{
         font-family: {t['mono']};
         font-size: 9.5pt;

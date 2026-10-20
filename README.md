@@ -20,6 +20,12 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
 - **Interactive terminal** - VT100/xterm emulation via `pyte`: cursor movement,
   colours, full-screen programs, scrollback, PTY resize, copy/paste, bracketed
   paste and application cursor keys.
+- **System information strip** - under the terminal, five cards read from the
+  connected host: CPU cores and model, memory (used/total plus swap), storage
+  (used/total for `/`), OS/kernel/architecture/hostname and uptime with load and
+  logged-in users. Collected on attach and on demand with one fixed read-only
+  probe; nothing is executed automatically and unsupported hosts degrade to a
+  clear "unavailable" note.
 - **SFTP and SMB file manager** - two-pane browser for SSH/SFTP sessions and
   SMB 2/3 shares, streamed 512 KB transfers, resume and cancel.
 - **Saved commands** - the Commands section keeps a searchable library per
