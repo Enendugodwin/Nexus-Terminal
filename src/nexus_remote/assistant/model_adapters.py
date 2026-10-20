@@ -522,11 +522,41 @@ def build_prompt(question: str, *, untrusted_output: str = "", context: str = ""
     return "\n".join(parts)
 
 
+def _fenced_lines(text: str) -> list[str]:
+    """Lines inside the first fenced code block (or every block, in order)."""
+
+    lines: list[str] = []
+    inside = False
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            inside = not inside
+            continue
+        if inside:
+            lines.append(line)
+    return lines
+
+
 def suggestion_from_response(response: ModelResponse, *, validator: Callable[[str], bool] | None = None) -> str | None:
-    """Extract a single command-looking line from model output, if plausible."""
-    for line in response.text.splitlines():
-        candidate = line.strip().strip("`").strip()
-        if not candidate or candidate.startswith("#"):
+    """Extract one command-looking line from model output, if plausible.
+
+    A fenced code block wins over prose: models usually put the command there,
+    while the surrounding text is explanation full of command-like words. That
+    made the old "first command-looking line" guess inaccurate.
+    """
+
+    candidates = _fenced_lines(response.text)
+    candidates.extend((response.text or "").splitlines())
+    for raw in candidates:
+        candidate = raw.strip()
+        for prefix in ("PS ", "$ ", "> "):
+            if candidate.startswith(prefix):
+                candidate = candidate[len(prefix) :].strip()
+                break
+        candidate = candidate.strip("`").strip()
+        if not candidate:
+            continue
+        if candidate.startswith(("#", "//", "<!--", "```", "|", "---", "* ", "- ")):
             continue
         if validator is not None and not validator(candidate):
             continue

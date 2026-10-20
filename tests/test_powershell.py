@@ -1,4 +1,4 @@
-"""The local PowerShell section and its pseudo-terminal channel."""
+﻿"""The local PowerShell section and its pseudo-terminal channel."""
 
 from __future__ import annotations
 
@@ -255,3 +255,47 @@ def test_a_failed_start_reports_the_error_without_freezing_the_window(app, servi
     assert "did not start" in page.status.text()
     assert page.start_button.isEnabled() is True
     page.shutdown()
+
+
+def test_a_multiline_selection_is_inserted_as_one_safe_paste(app, services):
+    page = PowerShellPage(services)
+    channel = FakeChannel()
+    page.terminal_view.attach(channel, session_id="local-test", label="test")
+    page.terminal_view.feed("\x1b[?2004h")  # PSReadLine enables bracketed paste
+
+    page._insert_text_in_shell("cd C:\\Temp\nGet-ChildItem")
+
+    payload = "".join(channel.written)
+    assert payload.startswith("\x1b[200~") and payload.endswith("\x1b[201~")
+    assert "\r" not in payload, "Enter must never be sent"
+    page.shutdown()
+
+
+def test_a_selection_is_copied_when_the_shell_cannot_paste_safely(app, services):
+    page = PowerShellPage(services)
+    channel = FakeChannel()
+    page.terminal_view.attach(channel, session_id="local-test", label="test")
+    QApplication.clipboard().setText("")
+
+    page._insert_text_in_shell("cd C:\\Temp\nGet-ChildItem")  # no bracketed paste
+
+    assert channel.written == []
+    assert QApplication.clipboard().text() == "cd C:\\Temp\nGet-ChildItem"
+    page.shutdown()
+
+
+def test_the_assistant_gets_the_console_as_context(app, services):
+    page = PowerShellPage(services)
+    channel = FakeChannel()
+    page.terminal_view.attach(channel, session_id="local-test", label="test")
+    page.terminal_view.feed("PS C:\\Windows> Get-Service\r\nStatus Name\r\nRunning Spooler\r\n")
+    page.cwd_edit.setText("C:\\Windows")
+
+    context = page._terminal_context()
+
+    assert context.startswith("Shell: Windows PowerShell")
+    assert "Working directory: C:\\Windows" in context
+    assert "Recent terminal output:" in context
+    assert "Running Spooler" in context
+    page.shutdown()
+

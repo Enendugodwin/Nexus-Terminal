@@ -70,13 +70,24 @@ default `Python-urllib` agent is rejected by some bot-protection layers with
 The **Optional AI** tab beside the terminal has a question box, an optional
 context box (for error text or a banner), and the answer.
 
-- Only what you type is sent. Terminal output is **not** uploaded automatically.
+- Only what you type is sent, plus - when **Include the open terminal as context**
+  is ticked (the default) - a small bounded snapshot of the attached console:
+  shell/edition, working directory or device, and the last few output lines
+  (20 lines / 1500 characters at most). The tab says what was attached after
+  each question, and unticking the box sends only what you typed.
 - Context is fenced as `UNTRUSTED_REMOTE_OUTPUT`; the prompt tells the model to
   treat it as data, not instructions.
 - Answers are labelled *AI-generated ... unverified* and are never executed.
-- **Insert into shell** selects one command-looking line and pastes it into the
-  open shell without pressing Enter. The remote policy gate still runs when you
-  press Enter yourself; local PowerShell commands are your own responsibility.
+- **Select part of the answer** to send exactly that text: highlight it and press
+  **Send selection** (or **Insert into shell** with a highlight). A fenced code
+  block is preferred when nothing is highlighted, so the guess is no longer just
+  "the first command-looking line".
+- **Insert into shell** pastes text into the open shell without pressing Enter.
+  A single line is always safe; a multi-line block is inserted as one bracketed
+  paste so the shell waits for one Enter. If the shell does not support
+  bracketed paste, the text goes to the clipboard instead of being typed line by
+  line. The remote policy gate still runs when you press Enter yourself; local
+  PowerShell commands are your own responsibility.
 - Requests are audited (`ai.request`) with provider, model, character count and
   outcome - never the prompt or answer text.
 

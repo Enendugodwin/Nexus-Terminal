@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QHeaderView,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from nexus_remote.assistant.autocomplete import SuggestionSource
 from nexus_remote.assistant.command_history import CommandStatus
+from nexus_remote.assistant.context import summarise
 from nexus_remote.assistant.model_adapters import (
     ModelResponse,
     build_prompt,
@@ -49,6 +51,7 @@ class AssistantPanel(QWidget):
     """
 
     send_shell_requested = Signal(str)  # command to insert into the open shell
+    insert_text_requested = Signal(str)  # selected text to insert safely
     status_message = Signal(str)
 
     def __init__(
@@ -61,6 +64,7 @@ class AssistantPanel(QWidget):
         super().__init__(parent)
         self.services = services
         self.compact = compact
+        self._context_provider = None  # callable returning a terminal snapshot
         if compact:
             self.setMinimumWidth(300)
 
@@ -501,12 +505,20 @@ class AssistantPanel(QWidget):
             "Insert one command-looking line into the open shell. It is never run automatically."
         )
         self.ai_insert_button.clicked.connect(self.insert_ai_suggestion)
+        self.ai_selection_button = QPushButton("Send selection" if not self.compact else "Send sel.")
+        self.ai_selection_button.setEnabled(False)
+        self.ai_selection_button.setToolTip(
+            "Insert the highlighted part of the answer into the open shell, exactly as selected. "
+            "It is not run; you still press Enter."
+        )
+        self.ai_selection_button.clicked.connect(self.insert_ai_selection)
 
         ask_row = QHBoxLayout()
         ask_row.setContentsMargins(0, 0, 0, 0)
         ask_row.addWidget(self.ai_ask_button)
         ask_row.addWidget(self.ai_copy_button)
         ask_row.addWidget(self.ai_insert_button)
+        ask_row.addWidget(self.ai_selection_button)
         ask_row.addStretch(1)
 
         self.ai_response_header = QLabel("AI output is unverified and never executed automatically.")
@@ -516,6 +528,18 @@ class AssistantPanel(QWidget):
         self.ai_response.setReadOnly(True)
         self.ai_response.setObjectName("Mono")
         self.ai_response.setPlaceholderText("The model's answer appears here.")
+        self.ai_response.selectionChanged.connect(self._update_selection_actions)
+
+        self.ai_context_toggle = QCheckBox("Include terminal context")
+        self.ai_context_toggle.setChecked(True)
+        self.ai_context_toggle.setToolTip(
+            "Adds a short, bounded snapshot of the attached console (shell, directory and the "
+            "last few lines) to the question, so the answer can be specific. Uncheck to send only "
+            "what you typed."
+        )
+        self.ai_context_note = QLabel("")
+        self.ai_context_note.setObjectName("Faint")
+        self.ai_context_note.setWordWrap(True)
 
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -524,6 +548,8 @@ class AssistantPanel(QWidget):
         layout.addWidget(self.ai_question)
         layout.addWidget(QLabel("Context (optional)"))
         layout.addWidget(self.ai_context)
+        layout.addWidget(self.ai_context_toggle)
+        layout.addWidget(self.ai_context_note)
         layout.addLayout(ask_row)
         layout.addWidget(self.ai_response_header)
         layout.addWidget(self.ai_response, 1)
@@ -537,7 +563,7 @@ class AssistantPanel(QWidget):
         return page
 
     def ask_ai(self) -> None:
-        """Send only what the operator typed (plus optional pasted context)."""
+        """Send only what the operator typed, plus the context they allowed."""
 
         question = self.ai_question.toPlainText().strip()
         if not question:
@@ -549,12 +575,13 @@ class AssistantPanel(QWidget):
                 "No AI provider is ready. Open Settings > Optional AI to choose one and store a key."
             )
             return
-        context = self.ai_context.toPlainText().strip()
+        context = self._collect_context()
         prompt = build_prompt(question, untrusted_output=context)
         self._ai_last_response = None
         self.ai_response.clear()
         self.ai_copy_button.setEnabled(False)
         self.ai_insert_button.setEnabled(False)
+        self._update_selection_actions()
         self.ai_ask_button.setEnabled(False)
         self.ai_response_header.setText("Waiting for the provider...")
         run_async(
@@ -563,6 +590,66 @@ class AssistantPanel(QWidget):
             on_result=self._ai_answered,
             on_error=self._ai_failed,
         )
+
+    def _collect_context(self) -> str:
+        """Merge the typed context with a bounded terminal snapshot."""
+
+        parts: list[str] = []
+        typed = self.ai_context.toPlainText().strip()
+        if typed:
+            parts.append(typed)
+        included = ""
+        if self.ai_context_toggle.isChecked():
+            snapshot = ""
+            if self._context_provider is not None:
+                try:
+                    snapshot = str(self._context_provider() or "").strip()
+                except Exception:  # pragma: no cover - context is best effort
+                    snapshot = ""
+            if snapshot:
+                parts.append(snapshot)
+                included = summarise(snapshot)
+        if included:
+            self.ai_context_note.setText(f"Sent with the question: {included}")
+        elif self.ai_context_toggle.isChecked():
+            self.ai_context_note.setText(
+                "No terminal is attached; only what you typed is sent."
+            )
+        else:
+            self.ai_context_note.setText("Terminal context is off; only what you typed is sent.")
+        return "\n\n".join(parts)
+
+    def set_context_provider(self, provider) -> None:
+        """Register a callable that returns a snapshot of the open terminal."""
+
+        self._context_provider = provider
+
+    # -- inserting an answer ------------------------------------------------
+    def _selected_response_text(self) -> str:
+        cursor = self.ai_response.textCursor()
+        if not cursor.hasSelection():
+            return ""
+        # Qt separates paragraphs with U+2029 in selectedText().
+        return (
+            cursor.selectedText()
+            .replace("\u2029", "\n")
+            .replace("\u2028", "\n")
+            .strip("\n")
+        )
+
+    def _update_selection_actions(self) -> None:
+        if not hasattr(self, "ai_selection_button"):
+            return
+        self.ai_selection_button.setEnabled(bool(self._selected_response_text().strip()))
+
+    def insert_ai_selection(self) -> None:
+        """Insert the highlighted part of the answer, exactly as selected."""
+
+        text = self._selected_response_text()
+        if not text.strip():
+            self.status_message.emit("Select the part of the answer you want to insert first.")
+            return
+        self.insert_text_requested.emit(text)
 
     def _ai_answered(self, response: object) -> None:
         self.ai_ask_button.setEnabled(True)
@@ -583,6 +670,7 @@ class AssistantPanel(QWidget):
         self.ai_insert_button.setEnabled(
             suggestion_from_response(response, validator=_looks_like_command) is not None
         )
+        self._update_selection_actions()
         self.services.audit.record(
             "ai",
             "ai.request",
@@ -602,6 +690,7 @@ class AssistantPanel(QWidget):
             (str(message) or "the provider did not answer")
             + (f"\n\n{detail}" if detail and detail != message else "")
         )
+        self._update_selection_actions()
         self.services.audit.record(
             "ai",
             "ai.request",
@@ -617,6 +706,12 @@ class AssistantPanel(QWidget):
             self.status_message.emit("AI response copied to the clipboard.")
 
     def insert_ai_suggestion(self) -> None:
+        selection = self._selected_response_text()
+        if selection.strip():
+            # A highlighted answer is inserted exactly as picked, not reduced
+            # to the first command-looking line.
+            self.insert_text_requested.emit(selection)
+            return
         if self._ai_last_response is None:
             return
         candidate = suggestion_from_response(

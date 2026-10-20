@@ -351,6 +351,29 @@ class TerminalView(QWidget):
             payload = f"\x1b[200~{payload}\x1b[201~"
         self.send(payload)
 
+    def insert_text(self, text: str) -> bool:
+        """Insert text without running any of it; return False when unsafe.
+
+        A single line can always be inserted. A multi-line block is only
+        inserted when the shell enabled bracketed paste: then the shell keeps
+        the block in its editor and waits for one Enter, instead of executing
+        every line as it arrives. Without bracketed paste the caller should
+        fall back to the clipboard rather than run code.
+        """
+
+        if self.channel is None:
+            return False
+        payload = (text or "").replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+        if not payload.strip():
+            return False
+        if "\n" in payload:
+            if not self.buffer.bracketed_paste:
+                return False
+            self.send(f"\x1b[200~{payload}\x1b[201~")
+            return True
+        self.send(payload)
+        return True
+
     def _drain(self) -> None:
         if self.channel is None:
             return

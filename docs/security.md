@@ -72,8 +72,11 @@ The policy engine is deterministic and has no model dependency.
 ## Optional AI egress
 
 - AI is disabled by default and has no effect on the policy engine.
-- Only the question and optional context typed in the assistant tab are sent;
-  terminal output is not uploaded automatically.
+- The question, anything typed in the context box, and - while **Include the
+  open terminal as context** is ticked (default) - a bounded snapshot of the
+  attached terminal (shell, directory or device, last 20 lines, 1500
+  characters) are sent. Untick it to send only what you typed; the tab states
+  what was attached after every question.
 - Endpoints must be HTTP(S). If an API key is present, plain HTTP is refused
   unless the host is loopback (`127.0.0.1`, `::1`, `localhost`).
 - Responses are bounded (2 MB) with a request timeout; provider error text is

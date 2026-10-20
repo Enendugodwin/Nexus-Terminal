@@ -198,7 +198,6 @@ pre-set to the `powershell` environment. Both terminals carry a **Diagnose
 last error** button: it copies the visible output into the assistant's error
 box and runs the deterministic rules straight away, so an error message is
 answered immediately instead of after a manual paste and button press.
-
 Command completion is inline: `SuggestionLineEdit` (ui/command_input.py) paints
 the engine's best match after the cursor in the faint token colour, so the
 proposal is visibly not part of the line and can never be submitted, copied or

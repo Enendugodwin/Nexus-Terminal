@@ -1,4 +1,4 @@
-"""Assistant AI tab and Settings provider selection."""
+﻿"""Assistant AI tab and Settings provider selection."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QApplication
 
 from nexus_remote.assistant.model_adapters import ModelResponse
@@ -96,3 +97,105 @@ def test_choosing_a_provider_loads_its_defaults(app, services):
     page.ai_provider.setCurrentIndex(page.ai_provider.findData("ollama"))
     assert page.ai_endpoint.text().startswith("http://127.0.0.1")
     assert page.ai_clear_key.isEnabled() is False
+
+
+def test_a_highlighted_answer_is_inserted_exactly_as_selected(app, services):
+    panel = AssistantPanel(services, compact=True)
+    inserted: list[str] = []
+    panel.insert_text_requested.connect(inserted.append)
+
+    panel._ai_answered(
+        ModelResponse(
+            text="Here is a block:\n\n```bash\ncd /srv\nls -la\n```\n\nThat lists the folder.",
+            provider="openai",
+            model="gpt-test",
+        )
+    )
+    assert panel.ai_selection_button.isEnabled() is False
+
+    text = panel.ai_response.toPlainText()
+    start = text.index("cd /srv")
+    end = text.index("ls -la") + len("ls -la")
+    cursor = panel.ai_response.textCursor()
+    cursor.setPosition(start)
+    cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+    panel.ai_response.setTextCursor(cursor)
+    app.processEvents()
+
+    assert panel.ai_selection_button.isEnabled() is True
+    panel.insert_ai_selection()
+    assert inserted == ["cd /srv\nls -la"]
+
+
+def test_insert_uses_the_selection_even_without_a_selection_button(app, services):
+    panel = AssistantPanel(services, compact=True)
+    inserted: list[str] = []
+    panel.insert_text_requested.connect(inserted.append)
+    panel._ai_answered(
+        ModelResponse(text="Run this:\n\n```\nsystemctl restart nginx\n```", provider="p", model="m")
+    )
+
+    text = panel.ai_response.toPlainText()
+    start = text.index("systemctl")
+    end = start + len("systemctl restart nginx")
+    cursor = panel.ai_response.textCursor()
+    cursor.setPosition(start)
+    cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+    panel.ai_response.setTextCursor(cursor)
+
+    panel.insert_ai_suggestion()  # the plain Insert button honours the selection
+    assert inserted == ["systemctl restart nginx"]
+
+
+def test_a_fenced_command_beats_the_surrounding_prose(app, services):
+    """The old guess took the first command-like line, which was often wrong."""
+
+    panel = AssistantPanel(services, compact=True)
+    inserted: list[str] = []
+    panel.send_shell_requested.connect(inserted.append)
+    panel._ai_answered(
+        ModelResponse(
+            text=(
+                "You could try df -h to see the space, but the real fix is:\n\n"
+                "```bash\nsudo journalctl --vacuum-size=200M\n```\n"
+            ),
+            provider="p",
+            model="m",
+        )
+    )
+    panel.insert_ai_suggestion()
+    assert inserted == ["sudo journalctl --vacuum-size=200M"]
+
+
+def test_the_prompt_carries_the_open_terminal_context(app, services, monkeypatch):
+    panel = AssistantPanel(services, compact=True)
+    panel.set_context_provider(
+        lambda: "Shell: bash\nWorking directory: /srv\nRecent terminal output:\n$ df -h"
+    )
+    captured: list[str] = []
+
+    def fake_async(fn, *args, on_result=None, on_error=None, **kwargs):
+        result = fn(*args, **kwargs)
+        if on_result is not None:
+            on_result(result)
+
+    monkeypatch.setattr("nexus_remote.ui.assistant_panel.run_async", fake_async)
+    monkeypatch.setattr(services.models, "available", lambda: True)
+    monkeypatch.setattr(
+        services.models,
+        "complete",
+        lambda prompt, system=None: captured.append(prompt)
+        or ModelResponse(text="ok", provider="p", model="m"),
+    )
+
+    panel.ai_question.setPlainText("Why is the disk full?")
+    panel.ask_ai()
+    assert captured
+    assert "Working directory: /srv" in captured[0]
+    assert "Included" in panel.ai_context_note.text() or "Sent with" in panel.ai_context_note.text()
+
+    panel.ai_context_toggle.setChecked(False)
+    panel.ask_ai()
+    assert "Working directory: /srv" not in captured[-1]
+    assert "Terminal context is off" in panel.ai_context_note.text()
+

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from nexus_remote.assistant.autocomplete import SuggestionSource, environment_for_os
+from nexus_remote.assistant.context import terminal_snapshot
 from nexus_remote.connections.interfaces import ConnectionErrorKind, ProtocolError, SessionState
 from nexus_remote.connections.session import Session
 from nexus_remote.diagnostics.sysinfo import SystemInfo, collect_system_info
@@ -543,6 +545,8 @@ class WorkspacePage(QWidget):
 
         self.assistant_panel = AssistantPanel(self.services, compact=True)
         self.assistant_panel.send_shell_requested.connect(self._send_to_open_shell)
+        self.assistant_panel.insert_text_requested.connect(self._insert_text_in_shell)
+        self.assistant_panel.set_context_provider(self._terminal_context)
         self.assistant_panel.status_message.connect(self.status_message)
         self.terminal_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.terminal_splitter.setChildrenCollapsible(False)
@@ -581,6 +585,53 @@ class WorkspacePage(QWidget):
         self.assistant_toggle.setChecked(True)
         self.assistant_panel.show()
         self.status_message.emit("The terminal output was diagnosed in the assistant panel.")
+
+    def _terminal_context(self) -> str:
+        """A short description of the attached shell, used as AI context."""
+
+        session_id = self.terminal_view.session_id
+        session = self.services.sessions.get(session_id) if session_id else None
+        if session is None:
+            return ""
+        device = self.services.devices.get(session.device_id) if session.device_id else None
+        details = [("Device", f"{session.device_name} ({session.endpoint})")]
+        if device is not None:
+            details.append(("Operating system", device.operating_system))
+            details.append(("Environment", device.environment))
+            details.append(("Criticality", device.criticality))
+        details.append(("Protocol", session.protocol))
+        return terminal_snapshot(
+            shell=f"remote {session.protocol} session",
+            details=details,
+            output=self.terminal_view.buffer.text(),
+        )
+
+    def _insert_text_in_shell(self, text: str) -> None:
+        """Insert selected AI text into the shell without running it.
+
+        Multi-line blocks are only inserted when the shell supports bracketed
+        paste; otherwise the text goes to the clipboard so nothing executes on
+        arrival.
+        """
+
+        if not self.terminal_view.is_attached():
+            QApplication.clipboard().setText(text)
+            self.status_message.emit(
+                "No shell is attached - the selection was copied to the clipboard."
+            )
+            return
+        if self.terminal_view.insert_text(text):
+            self.tabs.setCurrentWidget(self.terminal_page)
+            self.terminal_view.setFocus()
+            self.status_message.emit(
+                "Selection inserted into the shell - review it, then press Enter to run it."
+            )
+            return
+        QApplication.clipboard().setText(text)
+        self.status_message.emit(
+            "This shell cannot take a multi-line paste without running it, so the selection was "
+            "copied to the clipboard instead."
+        )
 
     def show_terminal_and_assistant(self) -> None:
         """Open the Terminal tab with the assistant visible (used by the menu)."""

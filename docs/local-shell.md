@@ -25,8 +25,16 @@ The page has two tabs: **Console** and **Assistant**.
   pre-set to the `powershell` environment, so suggestions, snippets, history,
   error rules, playbooks and the optional AI question box all work against the
   local console.
-- **Send** and **Insert into shell** paste one line into the local console
-  without pressing Enter. You still review it and press Enter yourself.
+- **Send** and **Insert into shell** paste text into the local console without
+  pressing Enter. You still review it and press Enter yourself. Highlight part
+  of an AI answer and press **Send selection** to send exactly that code; a
+  multi-line block is inserted as one bracketed paste so it cannot run line by
+  line, and is copied to the clipboard instead when the console does not support
+  bracketed paste.
+- The assistant also gets a short snapshot of the open console (edition,
+  working directory, last lines) as context for its questions while **Include
+  the open terminal as context** is ticked - see
+  [docs/ai-providers.md](ai-providers.md).
 - **Diagnose last error** (in the console toolbar) copies the console output
   into the assistant's error tab and diagnoses it immediately. The rules are
   deterministic and offline, so the answer appears as soon as the button is
@@ -76,8 +84,9 @@ boundary here - it removes a convenience barrier, not a security one.
 
 - The shell is operator-driven. Remote output, AI output and clipboard content
   are never typed into it automatically.
-- **Insert into shell** from the assistant pastes one line without pressing
-  Enter. You still review it and press Enter yourself.
+- **Insert into shell** from the assistant pastes text without pressing Enter.
+  You still review it and press Enter yourself. A multi-line selection is only
+  typed when the console supports bracketed paste; otherwise it is copied.
 - Starting and stopping the shell is audited (`local_shell.started`,
   `local_shell.stopped`) with the edition and working directory.
 - Closing the window terminates the process; there is no hidden background

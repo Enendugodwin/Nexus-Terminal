@@ -151,3 +151,37 @@ def test_paint_renders_without_errors(app):
     image = view.grab()
     assert not image.isNull()
     view.deleteLater()
+
+
+def _attached_view():
+    view = TerminalView()
+    channel = FakeChannel()
+    view.attach(channel, session_id="test", label="test")
+    return view, channel
+
+
+def test_inserting_one_line_never_presses_enter(app):
+    view, channel = _attached_view()
+    assert view.insert_text("Get-ChildItem C:\\Temp") is True
+    assert channel.writes == [b"Get-ChildItem C:\\Temp"]
+
+
+def test_a_multiline_block_is_refused_without_bracketed_paste(app):
+    view, channel = _attached_view()
+    assert view.buffer.bracketed_paste is False
+
+    assert view.insert_text("cd /srv\nls -la") is False
+    assert channel.writes == [], "a block must not be typed where it could run line by line"
+
+
+def test_a_multiline_block_is_inserted_as_one_paste_when_supported(app):
+    view, channel = _attached_view()
+    view.feed("\x1b[?2004h")  # the shell enabled bracketed paste
+    assert view.buffer.bracketed_paste is True
+
+    assert view.insert_text("cd /srv\r\nls -la\n") is True
+    payload = b"".join(channel.writes)
+    assert payload.startswith(b"\x1b[200~")
+    assert payload.endswith(b"\x1b[201~")
+    assert b"cd /srv\nls -la" in payload
+    assert b"\r" not in payload

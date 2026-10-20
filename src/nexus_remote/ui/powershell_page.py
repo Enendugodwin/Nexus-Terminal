@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from nexus_remote.assistant.context import terminal_snapshot
 from nexus_remote.host_shell import (
     PtyChannel,
     available_shells,
@@ -117,6 +120,7 @@ class PowerShellPage(QWidget):
         note.setWordWrap(True)
 
         console = QWidget()
+        self._console_page = console
         console_layout = QVBoxLayout(console)
         console_layout.setContentsMargins(0, 0, 0, 0)
         console_layout.addLayout(controls)
@@ -128,6 +132,8 @@ class PowerShellPage(QWidget):
         self.assistant_panel.set_environment("powershell")
         self.assistant_panel.set_context("Local PowerShell on this computer")
         self.assistant_panel.send_shell_requested.connect(self._send_to_local_shell)
+        self.assistant_panel.insert_text_requested.connect(self._insert_text_in_shell)
+        self.assistant_panel.set_context_provider(self._terminal_context)
         self.assistant_panel.status_message.connect(self.status_message)
 
         self.tabs = QTabWidget()
@@ -296,6 +302,44 @@ class PowerShellPage(QWidget):
         self.assistant_panel.diagnose_text(text)
         self.tabs.setCurrentWidget(self.assistant_panel)
         self.status_message.emit("The console output was diagnosed in the assistant tab.")
+
+    def _terminal_context(self) -> str:
+        """A short description of the local console, used as AI context."""
+
+        if not self.terminal_view.is_attached():
+            return ""
+        option = self._pending_option or self.selected_shell()
+        label = option.label if option else "PowerShell"
+        return terminal_snapshot(
+            shell=f"{label} (local console on this computer)",
+            details=[
+                ("Working directory", self.cwd_edit.text().strip()),
+                ("Operator account", os.environ.get("USERNAME", "")),
+            ],
+            output=self.terminal_view.buffer.text(),
+        )
+
+    def _insert_text_in_shell(self, text: str) -> None:
+        """Insert selected AI text into the console without running it."""
+
+        if not self.terminal_view.is_attached():
+            QApplication.clipboard().setText(text)
+            self.status_message.emit(
+                "PowerShell is not running - the selection was copied to the clipboard."
+            )
+            return
+        if self.terminal_view.insert_text(text):
+            self.tabs.setCurrentWidget(self._console_page)
+            self.terminal_view.setFocus()
+            self.status_message.emit(
+                "Selection inserted into the console - review it, then press Enter to run it."
+            )
+            return
+        QApplication.clipboard().setText(text)
+        self.status_message.emit(
+            "This console cannot take a multi-line paste without running it, so the selection "
+            "was copied to the clipboard instead."
+        )
 
     def _shell_closed(self, _session_id: str) -> None:
         self._channel = None
