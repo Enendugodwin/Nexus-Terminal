@@ -133,7 +133,11 @@ class AppServices:
 
         config = self.ai_config
         try:
-            key = self.ai_api_key(config.provider) if config.requires_key else ""
+            # A stored key is always used, even for providers where it is
+            # optional: an OpenAI-compatible endpoint (OpenRouter, an API
+            # gateway, ...) rejects requests with "Missing API key" if the
+            # key is dropped simply because a local server would not need one.
+            key = self.ai_api_key(config.provider)
             model = build_model(config, api_key=key)
         except Exception:  # noqa: BLE001 - bad settings must not break startup
             model = NullModel()

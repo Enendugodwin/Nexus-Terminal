@@ -263,3 +263,49 @@ def test_the_anthropic_provider_test_reports_a_refusal(monkeypatch):
 def test_a_disabled_model_refuses_to_be_tested():
     with pytest.raises(model_adapters.ModelUnavailable, match="disabled"):
         NullModel().probe()
+
+
+def test_an_optional_provider_still_sends_its_stored_key(services, monkeypatch):
+    """OpenAI-compatible endpoints accept a key that is merely optional.
+
+    The key must not be dropped just because a local server would not need one:
+    a hosted compatible endpoint then answers ``401 Missing API key``.
+    """
+
+    services.save_ai_api_key("openai_compatible", "sk-compatible")
+    services.database.set_setting("ai.provider", "openai_compatible")
+    services.database.set_setting(
+        "ai.endpoint", "https://gateway.example.test/v1/chat/completions"
+    )
+    services.database.set_setting("ai.model", "test-model")
+    services.configure_ai_from_settings()
+
+    captured = {}
+
+    def fake_request(url, **kwargs):
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+
+    assert services.models.available() is True
+    assert services.models.complete("hello").text == "ok"
+    assert captured["headers"]["Authorization"] == "Bearer sk-compatible"
+
+
+def test_a_local_compatible_endpoint_works_without_any_key(services, monkeypatch):
+    services.database.set_setting("ai.provider", "openai_compatible")
+    services.database.set_setting("ai.endpoint", "http://127.0.0.1:1234/v1/chat/completions")
+    services.database.set_setting("ai.model", "local-model")
+    services.configure_ai_from_settings()
+
+    captured = {}
+
+    def fake_request(url, **kwargs):
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+
+    assert services.models.complete("hello").text == "ok"
+    assert "Authorization" not in captured["headers"]
