@@ -5,8 +5,8 @@ the operator's own computer, with the operator's account. Remote policy rules
 do not apply to it, and nothing from a remote device or an AI provider is ever
 typed into it automatically.
 
-A real console needs a pseudo-terminal, so the module uses ``pywinpty`` (which
-wraps Windows ConPTY). The Qt terminal widget only sees the small channel
+A real console needs a pseudo-terminal, so the module uses ``pywinpty`` (WinPTY
+with a ConPTY fallback). The Qt terminal widget only sees the small channel
 interface it already uses for SSH: ``read`` / ``write`` / ``resize`` / ``close``
 plus a ``closed`` flag.
 """
@@ -67,7 +67,7 @@ def default_shell() -> ShellOption | None:
 
 
 class PtyChannel:
-    """A non-blocking view of a ConPTY process for :class:`TerminalView`."""
+    """A non-blocking view of a local pseudo-terminal for :class:`TerminalView`."""
 
     def __init__(self, process: object, label: str = "") -> None:
         self._process = process
@@ -91,7 +91,7 @@ class PtyChannel:
         if sys.platform != "win32":  # pragma: no cover - the packaged app is Windows
             raise HostShellUnavailable("the local PowerShell console is a Windows feature")
         try:
-            from winpty import PtyProcess
+            from winpty import Backend, PtyProcess
         except ImportError as exc:  # pragma: no cover - dependency guard
             raise HostShellUnavailable(
                 "the local console requires pywinpty; reinstall Nexus Remote or run: pip install pywinpty"
@@ -102,14 +102,30 @@ class PtyChannel:
         if not working_dir.is_dir():
             working_dir = Path.home()
         command = subprocess.list2cmdline([str(executable), "-NoLogo", *arguments])
+        size = (max(4, int(rows)), max(20, int(columns)))
+        # WinPTY is used first because ConPTY through pywinpty did not
+        # reliably interrupt Windows PowerShell in testing: ETX (Ctrl+C) was
+        # ignored while a command was running. WinPTY delivers the normal
+        # Ctrl+C key event, which stops the command and cancels the input
+        # line. ConPTY remains the fallback where the WinPTY agent cannot
+        # start.
         try:
             process = PtyProcess.spawn(
                 command,
                 cwd=str(working_dir),
-                dimensions=(max(4, int(rows)), max(20, int(columns))),
+                dimensions=size,
+                backend=Backend.WinPTY,
             )
-        except Exception as exc:
-            raise HostShellUnavailable(f"could not start PowerShell: {exc}") from exc
+        except Exception:
+            try:
+                process = PtyProcess.spawn(
+                    command,
+                    cwd=str(working_dir),
+                    dimensions=size,
+                    backend=Backend.ConPTY,
+                )
+            except Exception as exc:
+                raise HostShellUnavailable(f"could not start PowerShell: {exc}") from exc
         return cls(process, label=label)
 
     # -- channel interface --------------------------------------------------

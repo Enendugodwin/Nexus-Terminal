@@ -65,9 +65,9 @@ Secrets still live in the Windows Credential Manager, not on the stick.
 
 Output: `dist\NexusRemote\NexusRemote.exe` (one-directory bundle).
 
-The spec bundles Qt, paramiko, keyring, pyte, pyserial, pywinpty (ConPTY for the
-local PowerShell page) and the icon/resources, and includes the SQL migration
-files. The executable carries version metadata
+The spec bundles Qt, paramiko, keyring, pyte, pyserial, pywinpty (WinPTY plus a
+ConPTY fallback for the local PowerShell page) and the icon/resources, and
+includes the SQL migration files. The executable carries version metadata
 (0.3.0), the multi-resolution application icon and an explicit Windows app ID so
 the taskbar groups and displays it correctly. `console=False`, so `--selftest`
 output is not visible in this build; run the self-test from the source

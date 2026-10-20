@@ -23,7 +23,7 @@ Services (services.py)
         |
 protocols: SSH/SFTP (paramiko), serial (pyserial), RDP (FreeRDP), SMB 2/3 (optional)
         |
-local console: PowerShell via Windows ConPTY (pywinpty)
+local console: PowerShell via pywinpty (WinPTY, ConPTY fallback)
         |
 storage: SQLite + forward-only migrations, FTS5 when available
 ```
@@ -95,12 +95,14 @@ with a physical console cable.
 ### Local PowerShell
 
 The **PowerShell** page is separate from sessions: `host_shell.PtyChannel`
-spawns a chosen `powershell.exe` or `pwsh.exe` under Windows ConPTY via
-`pywinpty`, with a selected working directory and the normal user profile. It
-exposes the same `read`/`write`/`resize`/`close`/`closed` surface as the SSH and
-serial channels, so `TerminalView` attaches unchanged. A background reader
-thread performs the blocking ConPTY read into a queue; the Qt timer only drains
-it, so a silent shell cannot freeze the UI. The shell never starts at launch,
+spawns a chosen `powershell.exe` or `pwsh.exe` under a `pywinpty` pseudo-terminal
+(WinPTY backend, ConPTY fallback), with a selected working directory and the
+normal user profile. WinPTY is preferred because ConPTY in pywinpty does not
+reliably deliver Ctrl+C to Windows PowerShell. It exposes the same
+`read`/`write`/`resize`/`close`/`closed` surface as the SSH and serial channels,
+so `TerminalView` attaches unchanged. A background reader thread performs the
+blocking PTY read into a queue; the Qt timer only drains it, so a silent shell
+cannot freeze the UI. The shell never starts at launch,
 is stopped from its page, and is terminated by `MainWindow.closeEvent`. Local
 commands run with the operator's Windows account and are explicitly outside the
 remote policy gate; start/stop events are audited. See

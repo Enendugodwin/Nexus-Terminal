@@ -16,7 +16,7 @@ dependencies = [
     "PyYAML>=6.0",
     "pyte>=0.8.1",
     "pyserial>=3.5",
-    "pywinpty>=2.0; sys_platform == 'win32'",
+    "pywinpty>=3.0; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

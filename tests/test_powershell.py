@@ -1,4 +1,4 @@
-"""The local PowerShell section and its ConPTY channel."""
+"""The local PowerShell section and its pseudo-terminal channel."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def test_the_page_uses_the_saved_shell_and_directory(app, services):
     page.shutdown()
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="ConPTY is Windows-only")
+@pytest.mark.skipif(sys.platform != "win32", reason="the local console is Windows-only")
 def test_the_pty_channel_runs_a_real_powershell_command():
     try:
         import winpty  # noqa: F401
@@ -74,6 +74,53 @@ def test_the_pty_channel_runs_a_real_powershell_command():
     try:
         channel.write(f"Write-Output {marker}\r")
         deadline = time.monotonic() + 20
+        received = b""
+        while time.monotonic() < deadline:
+            chunk = channel.read(timeout=0.2)
+            if chunk:
+                received += chunk
+            if marker.encode() in received:
+                break
+            if channel.closed:
+                break
+        assert marker.encode() in received, received[-2000:].decode("utf-8", "replace")
+    finally:
+        channel.close()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the local console is Windows-only")
+def test_control_c_interrupts_a_running_powershell_command():
+    try:
+        import winpty  # noqa: F401
+    except ImportError:  # pragma: no cover - optional dependency
+        pytest.skip("pywinpty is not installed")
+    option = default_shell()
+    if option is None:
+        pytest.skip("no PowerShell installed")
+
+    marker = f"NEXUS_CTRLC_{uuid.uuid4().hex}"
+    channel = PtyChannel.spawn(
+        option.executable,
+        rows=24,
+        columns=100,
+        arguments=("-NoProfile",),
+    )
+    try:
+        channel.write("Start-Sleep -Seconds 30\r")
+        deadline = time.monotonic() + 10
+        seen = b""
+        while time.monotonic() < deadline:
+            chunk = channel.read(timeout=0.2)
+            if chunk:
+                seen += chunk
+            if b"Start-Sleep" in seen:
+                break
+        # Ctrl+C is ETX on a terminal. If it is not delivered as a real
+        # interrupt, the marker below waits behind the 30-second sleep.
+        channel.write(b"\x03")
+        time.sleep(0.2)
+        channel.write(f"Write-Output {marker}\r")
+        deadline = time.monotonic() + 15
         received = b""
         while time.monotonic() < deadline:
             chunk = channel.read(timeout=0.2)

@@ -30,10 +30,10 @@ diagnose or run a playbook.
 - **Interactive terminal** - VT100/xterm emulation via `pyte`: cursor movement,
   colours, full-screen programs, scrollback, PTY resize, copy/paste, bracketed
   paste and application cursor keys.
-- **Local PowerShell section** - a real ConPTY console for **this computer**,
-  with Windows PowerShell 5.1 / PowerShell 7 detection, a chosen working
-  directory, full colours and interactive programs. It never starts at launch
-  and is stopped when the app closes. Local commands run with your Windows
+- **Local PowerShell section** - a real pseudo-terminal console for **this
+  computer**, with Windows PowerShell 5.1 / PowerShell 7 detection, a chosen
+  working directory, full colours and interactive programs. It never starts at
+  launch and is stopped when the app closes. Local commands run with your Windows
   account and are not filtered by the remote command policy; the page says so.
 - **System information strip** - under the terminal, five cards read from the
   connected host: CPU cores and model, memory (used/total plus swap), storage
@@ -102,8 +102,8 @@ diagnose or run a playbook.
   missing, connecting to a serial profile explains how to install it; no other
   feature is affected.
 - The local PowerShell console needs `pywinpty` (installed with the package on
-  Windows) and Windows 10 1809+ for ConPTY. Without it, only the PowerShell page
-  is unavailable; remote features are unaffected.
+  Windows), which bundles its WinPTY agent and ConPTY fallback. Without it, only
+  the PowerShell page is unavailable; remote features are unaffected.
 
 ## Install and run
 
@@ -156,8 +156,9 @@ $env:PYTHONPATH = "src"
 The suite covers storage/migrations, device models and repository, credential
 references, host keys, redaction, policy, routing, sessions, transfers,
 diagnostics, autocomplete/history/snippets, error rules, the terminal buffer,
-the terminal widget (offscreen Qt), the local PowerShell ConPTY channel, AI
-provider request shaping and settings, theme switching and the update feed.
+the terminal widget (offscreen Qt), the local PowerShell pseudo-terminal
+channel (including Ctrl+C), AI provider request shaping and settings, theme
+switching and the update feed.
 
 ## Project layout
 
@@ -166,7 +167,7 @@ src/nexus_remote/
   config.py            paths and constants
   services.py          single wiring point for the whole app
   main.py              CLI and GUI bootstrap
-  host_shell.py        local PowerShell console over Windows ConPTY
+  host_shell.py        local PowerShell console over a Windows pseudo-terminal
   updates.py           update manifest check, verified download, installer hand-off
   resources.py         bundled icon lookup and Windows app identity
   resources/           multi-resolution icon and PNG mark
