@@ -41,6 +41,21 @@ def test_sessions_tab_exposes_kill_controls(app, services):
     assert workspace.force_button.text() == "Force kill"
 
 
+def test_the_terminal_output_is_diagnosed_without_waiting(app, services):
+    """One click sends the terminal output to the assistant and diagnoses it."""
+
+    workspace = WorkspacePage(services)
+    workspace.terminal_view.feed(
+        "ssh: connect to host 10.0.0.1 port 22: Connection timed out\r\n"
+    )
+    workspace._diagnose_terminal_output()
+    app.processEvents()
+
+    diagnosis = workspace.assistant_panel.diagnosis_view.toPlainText()
+    assert diagnosis.strip(), "the diagnosis was empty"
+    assert "timed out" in diagnosis.lower()
+
+
 def test_kill_all_sessions_closes_every_session(app, services, rdp_device):
     workspace = WorkspacePage(services)
     first = services.sessions.open(rdp_device, "ssh")

@@ -192,6 +192,13 @@ rather than as a separate page: its environment follows the attached shell
 diagnosis/playbooks and optional AI remain available, and the pane can be
 collapsed with the Assistant toggle.
 
+The same panel is also available as the **Assistant** tab of the local
+PowerShell page (see [docs/local-shell.md](local-shell.md)), where it is
+pre-set to the `powershell` environment. Both terminals carry a **Diagnose
+last error** button: it copies the visible output into the assistant's error
+box and runs the deterministic rules straight away, so an error message is
+answered immediately instead of after a manual paste and button press.
+
 Command completion is inline: `SuggestionLineEdit` (ui/command_input.py) paints
 the engine's best match after the cursor in the faint token colour, so the
 proposal is visibly not part of the line and can never be submitted, copied or

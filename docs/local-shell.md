@@ -17,6 +17,36 @@ and it never starts on its own.
 The selected edition and directory are remembered. Nothing is spawned when the
 application launches or when the page is first opened.
 
+## Assistant tab
+
+The page has two tabs: **Console** and **Assistant**.
+
+- The **Assistant** tab is the same panel that sits beside the SSH terminal,
+  pre-set to the `powershell` environment, so suggestions, snippets, history,
+  error rules, playbooks and the optional AI question box all work against the
+  local console.
+- **Send** and **Insert into shell** paste one line into the local console
+  without pressing Enter. You still review it and press Enter yourself.
+- **Diagnose last error** (in the console toolbar) copies the console output
+  into the assistant's error tab and diagnoses it immediately. The rules are
+  deterministic and offline, so the answer appears as soon as the button is
+  pressed - there is nothing to wait for.
+- Pasting text into the error box diagnoses it as well, so a copied error
+  message never has to be submitted by hand.
+
+## Fast failures
+
+Error messages must arrive at once, so every failure path is bounded:
+
+- The console is started **off the GUI thread**. A backend that cannot start
+  reports the failure in a dialog while the rest of the window stays
+  responsive.
+- The executable is looked up with a deadline of its own. A path on a
+  disconnected network drive cannot stall the lookup for a minute.
+- The WinPTY agent gets a five second timeout instead of pywinpty's thirty
+  second default, and the whole start attempt is abandoned after fifteen
+  seconds with a clear message.
+
 ## What it is
 
 `host_shell.PtyChannel` wraps a Windows pseudo-terminal through `pywinpty` and
@@ -62,4 +92,6 @@ boundary here - it removes a convenience barrier, not a security one.
 - If no edition is found, the page disables **Start** and says so.
 - If a working directory no longer exists, the shell starts in your home
   directory after an explanatory message.
+- If the console cannot be started, the reason appears immediately (see
+  *Fast failures* above) instead of after a long wait.
 - A closed child shell shows *PowerShell exited.* and the Start button returns.

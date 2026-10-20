@@ -142,3 +142,108 @@ def test_pty_spawn_reports_a_useful_error(monkeypatch):
     # A nonexistent executable must not escape as a raw OSError.
     with pytest.raises(host_shell.HostShellUnavailable):
         PtyChannel.spawn("Z:\\definitely-not-a-shell.exe", cwd=".")
+
+
+def test_pty_spawn_fails_quickly_instead_of_hanging(monkeypatch):
+    """A bad path must report its error at once, not after a minute of waiting."""
+
+    if sys.platform != "win32":
+        pytest.skip("the local console is Windows-only")
+    monkeypatch.setattr(host_shell, "sys", type("FakeSys", (), {"platform": "win32"}))
+    started = time.monotonic()
+    with pytest.raises(host_shell.HostShellUnavailable):
+        PtyChannel.spawn("Z:\\definitely-not-a-shell.exe", cwd=".")
+    assert time.monotonic() - started < 10
+
+
+# -- the assistant tab ------------------------------------------------------
+class FakeChannel:
+    """A stand-in for a live console that records what was written."""
+
+    def __init__(self) -> None:
+        self.written: list[str] = []
+        self._closed = False
+
+    def read(self, timeout: float = 0.0, max_bytes: int = 65536) -> bytes:
+        return b""
+
+    def write(self, data: bytes | str) -> None:
+        self.written.append(data if isinstance(data, str) else data.decode("utf-8", "replace"))
+
+    def resize(self, columns: int, rows: int) -> None:
+        return None
+
+    def close(self) -> None:
+        self._closed = True
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+
+def test_the_page_carries_an_assistant_tab_for_powershell(app, services):
+    page = PowerShellPage(services)
+    titles = [page.tabs.tabText(index) for index in range(page.tabs.count())]
+    assert "Console" in titles
+    assert "Assistant" in titles
+    assert page.assistant_panel.environment_combo.currentData() == "powershell"
+    assert "Local PowerShell" in page.assistant_panel.context_label.text()
+    page.shutdown()
+
+
+def test_an_assistant_command_is_inserted_but_never_executed(app, services):
+    page = PowerShellPage(services)
+    channel = FakeChannel()
+    page.terminal_view.attach(channel, session_id="local-test", label="test")
+    page.assistant_panel.send_shell_requested.emit("Get-Date")
+    app.processEvents()
+
+    assert channel.written, "the command was not inserted into the console"
+    inserted = "".join(channel.written)
+    assert "Get-Date" in inserted
+    assert "\r" not in inserted and "\n" not in inserted, "Enter must never be sent"
+    page.shutdown()
+
+
+def test_the_console_error_is_diagnosed_immediately(app, services):
+    page = PowerShellPage(services)
+    page.terminal_view.feed(
+        "git : The term 'git' is not recognized as an internal or external command\r\n"
+    )
+    page.diagnose_last_error()
+    app.processEvents()
+
+    assert page.tabs.currentWidget() is page.assistant_panel
+    diagnosis = page.assistant_panel.diagnosis_view.toPlainText()
+    assert diagnosis.strip(), "the diagnosis was empty"
+    assert "not recognized" in diagnosis or "Command not found" in diagnosis
+    page.shutdown()
+
+
+def test_a_failed_start_reports_the_error_without_freezing_the_window(app, services, monkeypatch):
+    """The console starts off the GUI thread, so a failure is reported at once."""
+
+    page = PowerShellPage(services)
+
+    def boom(*_args, **_kwargs):
+        raise host_shell.HostShellUnavailable("could not start PowerShell: no agent")
+
+    monkeypatch.setattr(host_shell.PtyChannel, "spawn", staticmethod(boom))
+    messages: list[str] = []
+    page.status_message.connect(messages.append)
+
+    monkeypatch.setattr(
+        "nexus_remote.ui.powershell_page.QMessageBox.warning",
+        lambda *_args, **_kwargs: None,
+    )
+    page.start_shell()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and page._starting:
+        app.processEvents()
+        time.sleep(0.02)
+    app.processEvents()
+
+    assert page._starting is False
+    assert "did not start" in page.status.text()
+    assert page.start_button.isEnabled() is True
+    page.shutdown()

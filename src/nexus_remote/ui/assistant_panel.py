@@ -6,7 +6,7 @@ page says so plainly and the deterministic features stay fully usable.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -355,6 +355,7 @@ class AssistantPanel(QWidget):
     # -- errors -------------------------------------------------------------
     def _build_errors_tab(self) -> QWidget:
         page = QWidget()
+        self.error_page = page
         self.error_input = QPlainTextEdit()
         self.error_input.setObjectName("Mono")
         self.error_input.setPlaceholderText(
@@ -367,6 +368,14 @@ class AssistantPanel(QWidget):
         diagnose_button = QPushButton("Diagnose")
         diagnose_button.setObjectName("Primary")
         diagnose_button.clicked.connect(self.diagnose)
+        # Pasting an error should produce an answer straight away, so the
+        # diagnosis follows the text with a short debounce instead of waiting
+        # for a button press.
+        self._diagnose_timer = QTimer(self)
+        self._diagnose_timer.setSingleShot(True)
+        self._diagnose_timer.setInterval(150)
+        self._diagnose_timer.timeout.connect(self.diagnose)
+        self.error_input.textChanged.connect(self._diagnose_timer.start)
 
         self.diagnosis_view = QPlainTextEdit()
         self.diagnosis_view.setReadOnly(True)
@@ -444,6 +453,18 @@ class AssistantPanel(QWidget):
                 )
             return
         self.diagnosis_view.setPlainText(diagnosis.render())
+
+    def diagnose_text(self, text: str) -> None:
+        """Show ``text`` in the error tab and diagnose it immediately.
+
+        The rules are deterministic and offline, so the answer is ready as
+        soon as the text arrives - there is nothing to wait for.
+        """
+
+        self.error_input.setPlainText(text or "")
+        if hasattr(self, "error_page"):
+            self.tabs.setCurrentWidget(self.error_page)
+        self.diagnose()
 
     def _show_playbook(self, item: QListWidgetItem) -> None:
         self.playbook_view.setPlainText(self.services.playbooks.render(str(item.data(Qt.ItemDataRole.UserRole))))

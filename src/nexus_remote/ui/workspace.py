@@ -500,6 +500,11 @@ class WorkspacePage(QWidget):
         detach.clicked.connect(self.terminal_view_detach)
         clear = QPushButton("Clear")
         clear.clicked.connect(lambda: self.terminal_view.clear())
+        self.diagnose_terminal_button = QPushButton("Diagnose last error")
+        self.diagnose_terminal_button.setToolTip(
+            "Copy the terminal output into the assistant's error tab and diagnose it immediately."
+        )
+        self.diagnose_terminal_button.clicked.connect(self._diagnose_terminal_output)
         self.assistant_toggle = QPushButton("Assistant")
         self.assistant_toggle.setCheckable(True)
         self.assistant_toggle.setChecked(True)
@@ -514,6 +519,7 @@ class WorkspacePage(QWidget):
         toolbar.addWidget(attach)
         toolbar.addWidget(detach)
         toolbar.addWidget(clear)
+        toolbar.addWidget(self.diagnose_terminal_button)
         toolbar.addWidget(self.assistant_toggle)
 
         self.terminal_status = QLabel("Connect to an SSH device to open an interactive shell.")
@@ -562,6 +568,19 @@ class WorkspacePage(QWidget):
         else:
             self._assistant_width = max(self.assistant_panel.width(), 320)
             self.assistant_panel.hide()
+
+    def _diagnose_terminal_output(self) -> None:
+        """Send the terminal output to the assistant and diagnose it at once."""
+
+        text = self.terminal_view.buffer.text()
+        if not text.strip():
+            self.status_message.emit("There is no terminal output to diagnose yet.")
+            return
+        self.assistant_panel.diagnose_text(text)
+        self.tabs.setCurrentWidget(self.terminal_page)
+        self.assistant_toggle.setChecked(True)
+        self.assistant_panel.show()
+        self.status_message.emit("The terminal output was diagnosed in the assistant panel.")
 
     def show_terminal_and_assistant(self) -> None:
         """Open the Terminal tab with the assistant visible (used by the menu)."""
