@@ -104,6 +104,8 @@ class AssistantPanel(QWidget):
         self.prefix_edit.returnPressed.connect(self._accept_suggestion)
 
         self.suggestion_list = QListWidget()
+        self.suggestion_list.setMinimumHeight(200 if self.compact else 240)
+        self.suggestion_list.setAlternatingRowColors(True)
         self.suggestion_list.itemDoubleClicked.connect(self._explain_selected)
         self.suggestion_list.currentItemChanged.connect(
             lambda current, _previous: self._explain_selected(current) if current else None
@@ -112,7 +114,8 @@ class AssistantPanel(QWidget):
         self.explanation_view = QPlainTextEdit()
         self.explanation_view.setReadOnly(True)
         self.explanation_view.setObjectName("Mono")
-        self.explanation_view.setMaximumHeight(140)
+        self.explanation_view.setMaximumHeight(110)
+        self.explanation_view.setMinimumHeight(72)
         self.explanation_view.setPlaceholderText(
             "Select a suggestion to see its description and provenance."
         )
@@ -156,7 +159,9 @@ class AssistantPanel(QWidget):
         splitter.addWidget(left)
         splitter.addWidget(right)
         if self.compact:
-            splitter.setSizes([420, 180])
+            # Give the suggestion list (the point of this tab) the room; the
+            # snippet browser below it can scroll.
+            splitter.setSizes([470, 210])
 
         note = QLabel(
             "Suggestions are environment-specific: a Cisco command is never offered for bash. "

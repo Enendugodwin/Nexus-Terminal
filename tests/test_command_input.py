@@ -236,6 +236,20 @@ def test_prefix_box_is_comfortably_sized(app, services):
     assert panel.prefix_edit.isClearButtonEnabled() is True
 
 
+def test_suggestion_list_is_roomy(app, services):
+    panel = AssistantPanel(services)
+
+    assert panel.suggestion_list.minimumHeight() >= 240
+    assert panel.explanation_view.maximumHeight() <= 120
+
+
+def test_compact_suggestion_list_is_still_roomy(app, services):
+    panel = AssistantPanel(services, compact=True)
+
+    assert panel.suggestion_list.minimumHeight() >= 200
+    assert panel.prefix_edit.minimumHeight() >= 36
+
+
 def test_prefix_box_completes_inline(app, services):
     panel = AssistantPanel(services)
     panel.resize(420, 600)

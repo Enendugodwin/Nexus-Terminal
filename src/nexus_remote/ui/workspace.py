@@ -35,6 +35,7 @@ from nexus_remote.connections.session import Session
 from nexus_remote.services import AppServices
 from nexus_remote.ui.assistant_panel import AssistantPanel
 from nexus_remote.ui.command_input import SuggestionLineEdit
+from nexus_remote.ui.commands_page import CommandDialog
 from nexus_remote.ui.tasks import Worker, connect_worker
 from nexus_remote.ui.terminal import TerminalView
 
@@ -81,7 +82,8 @@ class WorkspacePage(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_sessions_tab(), "Sessions")
         self.tabs.addTab(self._build_terminal_tab(), "Terminal")
-        self.tabs.addTab(self._build_console_tab(), "SSH console")
+        self.console_page = self._build_console_tab()
+        self.tabs.addTab(self.console_page, "SSH console")
         self.files_page = self._build_files_tab()
         self.tabs.addTab(self.files_page, "Files")
         self.tabs.addTab(self._build_rdp_tab(), "Remote desktop")
@@ -661,6 +663,9 @@ class WorkspacePage(QWidget):
         self.run_button = QPushButton("Run")
         self.run_button.setObjectName("Primary")
         self.run_button.clicked.connect(self.run_command)
+        self.save_command_button = QPushButton("Save command…")
+        self.save_command_button.setToolTip("Save the typed command to the Commands library")
+        self.save_command_button.clicked.connect(self._save_console_command)
 
         self.completion_list = QListWidget()
         self.completion_list.setMaximumHeight(120)
@@ -678,6 +683,7 @@ class WorkspacePage(QWidget):
         command_row = QHBoxLayout()
         command_row.addWidget(self.console_input, 1)
         command_row.addWidget(self.run_button)
+        command_row.addWidget(self.save_command_button)
 
         controls = QFormLayout()
         controls.addRow("Session", self.console_session_combo)
@@ -768,6 +774,37 @@ class WorkspacePage(QWidget):
                 self._accept_completion(item)
                 return
         self.run_command()
+
+    def _save_console_command(self) -> None:
+        """Save the line currently typed in the console to the command library."""
+        command = self.console_input.text().strip()
+        if not command:
+            QMessageBox.information(
+                self, "Nothing to save", "Type the command you want to save first."
+            )
+            return
+        dialog = CommandDialog(
+            self.services,
+            command=command,
+            environment=self._current_environment(),
+            parent=self,
+        )
+        if dialog.exec() and dialog.saved is not None:
+            self.status_message.emit(
+                f"Saved “{dialog.saved.name}” to Commands - find it in the Commands section."
+            )
+
+    def load_command(self, command: str, environment: str = "") -> None:
+        """Put a saved command into the console input without running it."""
+        self.tabs.setCurrentWidget(self.console_page)
+        if environment:
+            index = self.console_environment.findData(environment)
+            if index >= 0:
+                self.console_environment.setCurrentIndex(index)
+        self.console_input.setText(command)
+        self.console_input.setCursorPosition(len(command))
+        self.console_input.setFocus()
+        self._update_completions(command)
 
     def run_command(self) -> None:
         session = self._console_session()

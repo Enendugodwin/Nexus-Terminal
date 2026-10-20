@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from nexus_remote import config
 from nexus_remote.services import AppServices
+from nexus_remote.ui.commands_page import CommandsPage
 from nexus_remote.ui.dashboard import DashboardPage
 from nexus_remote.ui.device_manager import DeviceManagerPage
 from nexus_remote.ui.diagnostics_view import DiagnosticsPage
@@ -31,6 +32,7 @@ PAGES = (
     ("Dashboard", "Inventory and session health"),
     ("Devices", "Saved device profiles and connection settings"),
     ("Workspace", "Sessions, terminal with assistant, files and remote desktop"),
+    ("Commands", "Save and reuse commands per environment"),
     ("Diagnostics", "Connectivity checks and evidence"),
     ("Security", "Credentials, host keys and audit trail"),
     ("Settings", "Policy, routing restrictions and integrations"),
@@ -77,6 +79,7 @@ class MainWindow(QMainWindow):
         self.dashboard = DashboardPage(services)
         self.devices = DeviceManagerPage(services)
         self.workspace = WorkspacePage(services)
+        self.commands = CommandsPage(services)
         self.diagnostics = DiagnosticsPage(services)
         self.security = SecurityCenter(services)
         self.settings = SettingsPage(services)
@@ -85,6 +88,7 @@ class MainWindow(QMainWindow):
             self.dashboard,
             self.devices,
             self.workspace,
+            self.commands,
             self.diagnostics,
             self.security,
             self.settings,
@@ -106,6 +110,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.addAction(_action("New connection", lambda: self._go_to(PAGE_INDEX["Workspace"])))
         menu.addAction(_action("Assistant beside terminal", self._show_assistant))
+        menu.addAction(_action("Saved commands", lambda: self._go_to(PAGE_INDEX["Commands"])))
         menu.addAction(_action("Run diagnostics", lambda: self._go_to(PAGE_INDEX["Diagnostics"])))
         menu.addAction(_action("Security Center", lambda: self._go_to(PAGE_INDEX["Security"])))
         menu.addAction(_action("Settings", lambda: self._go_to(PAGE_INDEX["Settings"])))
@@ -149,6 +154,7 @@ class MainWindow(QMainWindow):
         self.devices.connect_requested.connect(self._connect)
         self.workspace.diagnostic_requested.connect(self._show_diagnostics)
         self.workspace.status_message.connect(self._set_status)
+        self.commands.send_requested.connect(self._send_command)
         self.nav.currentRowChanged.connect(self._refresh_current)
 
         self._timer = QTimer(self)
@@ -184,6 +190,8 @@ class MainWindow(QMainWindow):
             elif page is self.workspace:
                 self.workspace.refresh_devices()
                 self.workspace.refresh_rdp_devices()
+            elif page is self.commands:
+                self.commands.refresh()
             elif page is self.diagnostics:
                 self.diagnostics.refresh_devices()
             elif page is self.security:
@@ -212,6 +220,12 @@ class MainWindow(QMainWindow):
     def _show_assistant(self) -> None:
         self._go_to(PAGE_INDEX["Workspace"])
         self.workspace.show_terminal_and_assistant()
+
+    def _send_command(self, command: str, environment: str) -> None:
+        """Load a saved command into the console; the operator still presses Run."""
+        self._go_to(PAGE_INDEX["Workspace"])
+        self.workspace.load_command(command, environment)
+        self._set_status("Command loaded into the SSH console - review it, then press Run.")
 
     def _show_diagnostics(self, host: str, port: int, protocol: str) -> None:
         self._go_to(PAGE_INDEX["Diagnostics"])

@@ -22,6 +22,11 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
   paste and application cursor keys.
 - **SFTP and SMB file manager** - two-pane browser for SSH/SFTP sessions and
   SMB 2/3 shares, streamed 512 KB transfers, resume and cancel.
+- **Saved commands** - the Commands section keeps a searchable library per
+  environment with names, descriptions, tags, a "verified by me" flag and the
+  policy's risk classification. Send a command to the SSH console (it is never
+  executed from the library) or save the console line straight from the console
+  tab; the policy gate runs when you press Run.
 - **Diagnostics** - DNS, TCP handshake, protocol banner, local route lookup,
   interface/VPN detection and ICMP (with honest caveats about what each result
   proves).

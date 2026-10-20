@@ -72,6 +72,20 @@ labels the command `read-only`, `modifies-state`, `destructive` or `unknown`.
 Destructive commands are denied unless explicitly enabled *and* approved;
 state-changing commands require confirmation. Denials and approvals are audited.
 
+### Saved commands
+The Commands page (`ui/commands_page.py`) is a manager over `SnippetStore`
+(`command_snippets`): search by name, command, description or tag, filter by
+environment, and create/edit/delete entries with a live risk label from
+`PolicyEngine.classify()`. The dialog uses the same `SuggestionLineEdit` as the
+console, so saved commands get the same inline completion and provenance rules.
+
+Saved commands are data, not actions. "Send to console" only fills the SSH
+console input (and switches the environment); running it still goes through
+`run_command()` and the policy gate. The console's *Save command…* button opens
+the same dialog prefilled with the typed line, so the library is also reachable
+where commands are written. Snippets saved from the assistant or from history
+appear in both places because they share one store.
+
 ### Assistant
 
 The assistant lives beside the open terminal (Terminal tab, right-hand pane)
@@ -85,10 +99,11 @@ the engine's best match after the cursor in the faint token colour, so the
 proposal is visibly not part of the line and can never be submitted, copied or
 selected. Tab or Right-arrow at the end accepts it, Escape dismisses it, and
 Up/Down drive a companion list that Enter fills in before anything runs. The same
-widget is used by the SSH console and the assistant's Prefix box. Autocomplete, snippets, playbooks and
-error diagnosis are local and deterministic. Model adapters are optional; their
-suggestions carry the `AI-generated (unverified)` label, rank below
-verified/history entries, and are never executed automatically.
+widget is used by the SSH console and the assistant's Prefix box. Autocomplete,
+snippets, playbooks and error diagnosis are local and deterministic. Model
+adapters are optional; their suggestions carry the `AI-generated (unverified)`
+label, rank below verified/history entries, and are never executed
+automatically.
 
 ## Data model (SQLite)
 
