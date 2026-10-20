@@ -322,12 +322,18 @@ class SessionManager:
             secret = self._resolve_secret(device, session)
         options = dict(cfg.extra) if cfg else {}
         options.update(dict(session.metadata.get("options") or {}))
+        auth_method = str(options.get("auth_method") or (cfg.auth_method if cfg else ""))
+        private_key = passphrase = None
+        if auth_method == "ssh_key" and session.protocol in {"ssh", "sftp"}:
+            private_key, passphrase = self._resolve_ssh_key(device, session, options)
         return ConnectionTarget(
             host=device.hostname,
             protocol=session.protocol,
             port=session.port,
             username=session.username,
             secret=str(secret) if secret is not None else None,
+            private_key=private_key,
+            passphrase=passphrase,
             route=session.route,
             jump_host=device.routing.jump_host,
             options=options,
@@ -338,7 +344,8 @@ class SessionManager:
             return None
         cfg = device.connection(session.protocol)
         auth = cfg.auth_method if cfg else "credential_vault"
-        if auth in {"none", "ssh_agent"}:
+        if auth in {"none", "ssh_agent", "ssh_key"}:
+            # ssh_key material is resolved separately (key text + passphrase).
             return None
         kind = CREDENTIAL_KIND.get(session.protocol, "password")
         try:
@@ -354,6 +361,41 @@ class SessionManager:
                 kind=ConnectionErrorKind.AUTH,
             )
         return secret
+
+    def _resolve_ssh_key(
+        self,
+        device: Device,
+        session: Session,
+        options: dict[str, object],
+    ) -> tuple[str | None, str | None]:
+        """Load the private key from the vault, or use the configured key file.
+
+        A key file needs no vault entry at all; the passphrase (when the file is
+        encrypted) still comes from the vault so it is never stored in the
+        device profile.
+        """
+        key_filename = str(options.get("key_filename") or "").strip()
+        if self.credentials is None:
+            if key_filename:
+                return None, None
+            raise ProtocolError(
+                "the credential vault is unavailable and no key file is configured",
+                kind=ConnectionErrorKind.POLICY,
+            )
+        try:
+            private_key = self.credentials.resolve(device.id, "ssh_private_key", session.username)
+            passphrase = self.credentials.resolve(device.id, "ssh_key_passphrase", session.username)
+        except CredentialError as exc:
+            raise ProtocolError(
+                f"the credential vault is unavailable: {exc}", kind=ConnectionErrorKind.POLICY
+            ) from exc
+        if not private_key and not key_filename:
+            raise ProtocolError(
+                f"no SSH private key for {device.name}. Choose a key file in the device profile or "
+                "store a key (kind 'ssh_private_key') in the Security Center.",
+                kind=ConnectionErrorKind.AUTH,
+            )
+        return private_key, passphrase
 
     def _record_failure(self, session: Session, device: Device, error: ProtocolError) -> None:
         session.fail(str(error), error.kind.value)

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -17,8 +22,10 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from nexus_remote.devices.models import (
@@ -33,6 +40,16 @@ from nexus_remote.devices.models import (
     ProtocolConfig,
     RoutingPreferences,
     ValidationError,
+    is_serial_port,
+)
+from nexus_remote.protocols.serial import (
+    BAUD_RATES,
+    DATA_BITS,
+    DEFAULT_BAUD,
+    FLOWS,
+    PARITIES,
+    STOP_BITS,
+    available_serial_ports,
 )
 from nexus_remote.security.credentials import CREDENTIAL_KINDS
 from nexus_remote.services import AppServices
@@ -70,6 +87,7 @@ class DeviceDialog(QDialog):
         self.existing = device
         self.setWindowTitle("Edit device" if device else "Add device")
         self.setMinimumWidth(640)
+        self.setMinimumHeight(360)
 
         self.name_edit = QLineEdit(device.name if device else "")
         self.host_edit = QLineEdit(device.hostname if device else "")
@@ -133,6 +151,76 @@ class DeviceDialog(QDialog):
             connections_layout.addWidget(share, row, 5)
             self._protocol_widgets[protocol] = (enabled, port, auth, username, share)
 
+        # -- SSH private keys ------------------------------------------------
+        key_prefill = ""
+        if device:
+            for protocol in ("ssh", "sftp"):
+                cfg = device.connection(protocol)
+                if cfg and cfg.auth_method == "ssh_key":
+                    key_prefill = str((cfg.extra or {}).get("key_filename", "") or "")
+                    break
+        self.key_edit = QLineEdit(key_prefill)
+        self.key_edit.setPlaceholderText(r"C:\Users\you\.ssh\id_ed25519  or  ~/.ssh/id_rsa")
+        browse_key = QPushButton("Browse…")
+        browse_key.clicked.connect(self._browse_key)
+        key_row = QHBoxLayout()
+        key_row.setContentsMargins(0, 0, 0, 0)
+        key_row.addWidget(self.key_edit, 1)
+        key_row.addWidget(browse_key)
+        key_form = QFormLayout()
+        key_form.addRow("Key file", key_row)
+        key_note = _note(
+            "Used when an SSH or SFTP connection's authentication is 'SSH private key (vault)'. "
+            "Leave it empty to use a key stored in the Security Center; a passphrase-protected "
+            "key reads its passphrase from the vault (kind 'ssh_key_passphrase')."
+        )
+
+        # -- serial console --------------------------------------------------
+        serial_cfg = device.connection("serial") if device else None
+        serial_extra = dict(serial_cfg.extra) if serial_cfg else {}
+        self.serial_enabled = QCheckBox("Enable serial console (COM port or tty)")
+        self.serial_enabled.setChecked(bool(serial_cfg and serial_cfg.enabled))
+        self.serial_port_combo = QComboBox()
+        self.serial_port_combo.setEditable(True)
+        self.serial_port_combo.setMinimumWidth(230)
+        self.serial_port_combo.setToolTip("Detected ports are listed; type any COM3 or /dev/ttyUSB0 name.")
+        for port_name, description in available_serial_ports():
+            label = f"{port_name} - {description}" if description else port_name
+            self.serial_port_combo.addItem(label, port_name)
+        prefill_port = str(serial_extra.get("port_name") or "")
+        if not prefill_port and device and is_serial_port(device.hostname):
+            prefill_port = device.hostname
+        if prefill_port:
+            index = self.serial_port_combo.findData(prefill_port)
+            if index >= 0:
+                self.serial_port_combo.setCurrentIndex(index)
+            else:
+                self.serial_port_combo.setEditText(prefill_port)
+
+        self.baud_combo = QComboBox()
+        self.baud_combo.setEditable(True)
+        for rate in BAUD_RATES:
+            self.baud_combo.addItem(str(rate), rate)
+        self.baud_combo.setCurrentText(str(serial_extra.get("baud") or DEFAULT_BAUD))
+
+        self.data_bits_combo = _combo(tuple(str(value) for value in DATA_BITS), str(serial_extra.get("data_bits", 8)))
+        self.parity_combo = _combo(PARITIES, str(serial_extra.get("parity", "none")))
+        self.stop_bits_combo = _combo(STOP_BITS, str(serial_extra.get("stop_bits", "1")))
+        self.flow_combo = _combo(FLOWS, str(serial_extra.get("flow", "none")))
+
+        serial_form = QFormLayout()
+        serial_form.addRow("Port", self.serial_port_combo)
+        serial_form.addRow("Baud rate", self.baud_combo)
+        serial_form.addRow("Data bits", self.data_bits_combo)
+        serial_form.addRow("Parity", self.parity_combo)
+        serial_form.addRow("Stop bits", self.stop_bits_combo)
+        serial_form.addRow("Flow control", self.flow_combo)
+        serial_note = _note(
+            "A serial profile is a raw console: no login and no command policy gate - whatever you "
+            "type goes straight to the device. The port field above is independent of Hostname/IP; "
+            "if Hostname/IP is empty it is filled with the serial port name."
+        )
+
         # -- routing --------------------------------------------------------
         routing = device.routing if device else RoutingPreferences()
         self.route_combo = _combo(ROUTE_METHODS, routing.preferred_method)
@@ -172,13 +260,41 @@ class DeviceDialog(QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
 
+        # The profile form is tall (identity + four protocols + routing). Put it
+        # in a scroll area so the dialog always fits on small screens and the
+        # Save/Cancel row stays reachable instead of falling below the desktop.
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(8)
+        body_layout.addWidget(_group("Identity", identity))
+        body_layout.addWidget(_group("Connection profiles", _wrap(connections_layout)))
+        body_layout.addWidget(_group("SSH private key", key_form))
+        body_layout.addWidget(key_note)
+        body_layout.addWidget(_group("Serial console", serial_form))
+        body_layout.addWidget(serial_note)
+        body_layout.addWidget(_note(_smb_note()))
+        body_layout.addWidget(_group("Routing", routing_form))
+        body_layout.addWidget(credentials_button)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(body)
+
         layout = QVBoxLayout(self)
-        layout.addWidget(_group("Identity", identity))
-        layout.addWidget(_group("Connection profiles", _wrap(connections_layout)))
-        layout.addWidget(_note(_smb_note()))
-        layout.addWidget(_group("Routing", routing_form))
-        layout.addWidget(credentials_button)
+        layout.addWidget(scroll, 1)
         layout.addWidget(buttons)
+
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            self.resize(
+                min(900, max(640, available.width() - 160)),
+                min(900, max(360, available.height() - 120)),
+            )
+        else:
+            self.resize(820, 720)
 
     # -- helpers ------------------------------------------------------------
     def _open_credentials(self) -> None:  # pragma: no cover - needs user input
@@ -187,6 +303,26 @@ class DeviceDialog(QDialog):
         dialog = CredentialPromptDialog(self.services, self.existing, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             QMessageBox.information(self, "Credential stored", "The secret is stored in the OS credential vault.")
+
+    def _browse_key(self) -> None:
+        directory = str(Path.home() / ".ssh")
+        path, _selected = QFileDialog.getOpenFileName(
+            self,
+            "Choose an SSH private key",
+            directory,
+            "All files (*)",
+        )
+        if path:
+            self.key_edit.setText(path)
+
+    def selected_serial_port(self) -> str:
+        """The chosen port, whether picked from the list or typed by hand."""
+        text = self.serial_port_combo.currentText().strip()
+        data = self.serial_port_combo.currentData()
+        index = self.serial_port_combo.currentIndex()
+        if data and index >= 0 and text == self.serial_port_combo.itemText(index):
+            return str(data).strip()
+        return text
 
     def _on_accept(self) -> None:  # pragma: no cover - needs user input
         try:
@@ -215,9 +351,46 @@ class DeviceDialog(QDialog):
                 username=username.text().strip(),
                 extra=extra,
             )
+        serial_port = self.selected_serial_port()
+        serial_enabled = self.serial_enabled.isChecked()
+        if serial_enabled and not serial_port:
+            raise ValidationError(
+                "enter a serial port for the serial console (for example COM3 or /dev/ttyUSB0)"
+            )
+        baud_text = self.baud_combo.currentText().strip() or str(DEFAULT_BAUD)
+        try:
+            baud = int(baud_text)
+        except ValueError as exc:
+            raise ValidationError("the serial baud rate must be a whole number") from exc
+        if baud <= 0:
+            raise ValidationError("the serial baud rate must be positive")
+        connections["serial"] = ProtocolConfig(
+            protocol="serial",
+            enabled=serial_enabled,
+            auth_method="none",
+            extra={
+                "port_name": serial_port,
+                "baud": baud,
+                "data_bits": int(self.data_bits_combo.currentText() or 8),
+                "parity": self.parity_combo.currentText(),
+                "stop_bits": self.stop_bits_combo.currentText(),
+                "flow": self.flow_combo.currentText(),
+            },
+        )
+
+        key_path = self.key_edit.text().strip()
+        for protocol in ("ssh", "sftp"):
+            cfg = connections.get(protocol)
+            if cfg is None:
+                continue
+            if cfg.auth_method == "ssh_key" and key_path:
+                cfg.extra["key_filename"] = key_path
+            else:
+                # A stale path must not silently override another auth method.
+                cfg.extra.pop("key_filename", None)
         device = self.existing or Device(name="", hostname="")
         device.name = self.name_edit.text().strip()
-        device.hostname = self.host_edit.text().strip()
+        device.hostname = self.host_edit.text().strip() or (serial_port if serial_enabled else "")
         device.operating_system = self.os_combo.currentText()
         device.environment = self.env_combo.currentText()
         device.criticality = self.crit_combo.currentText()

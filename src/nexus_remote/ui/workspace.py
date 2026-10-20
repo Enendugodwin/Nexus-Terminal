@@ -321,7 +321,7 @@ class WorkspacePage(QWidget):
             + (f"  banner: {session.server_banner}" if session.server_banner else "")
             + "\n"
         )
-        if session.protocol == "ssh":
+        if session.protocol in ("ssh", "serial"):
             self._refresh_session_choices()
             index = self.terminal_session_combo.findData(session.id)
             if index >= 0:
@@ -422,7 +422,7 @@ class WorkspacePage(QWidget):
                 self.console_session_combo.addItem(
                     f"{session.device_name} ({session.endpoint})", session.id
                 )
-            if session.protocol == "ssh" and session.state is SessionState.CONNECTED:
+            if session.protocol in ("ssh", "serial") and session.state is SessionState.CONNECTED:
                 self.terminal_session_combo.addItem(
                     f"{session.device_name} ({session.endpoint})", session.id
                 )
@@ -604,8 +604,10 @@ class WorkspacePage(QWidget):
         self._attach_terminal(session)
 
     def _attach_terminal(self, session: Session) -> None:
-        if session.protocol != "ssh" or session.adapter is None:
-            self.terminal_status.setText("Only connected SSH sessions can open an interactive shell.")
+        if session.protocol not in ("ssh", "serial") or session.adapter is None:
+            self.terminal_status.setText(
+                "Only connected SSH or serial sessions can open an interactive shell."
+            )
             return
         if self.terminal_view.session_id == session.id and self.terminal_view.is_attached():
             self.terminal_status.setText(f"Terminal attached to {session.endpoint}.")
@@ -650,6 +652,9 @@ class WorkspacePage(QWidget):
             return
         if session.state is not SessionState.CONNECTED:
             self.system_info.reset("The SSH session is no longer connected.")
+            return
+        if session.protocol != "ssh":
+            self.system_info.reset("System information is available for SSH sessions only.")
             return
         self.system_info.set_loading(session.device_name)
         worker = Worker(collect_system_info, session.adapter)

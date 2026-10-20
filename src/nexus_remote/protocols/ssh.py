@@ -9,6 +9,7 @@ unknown or changed key aborts the connection.
 from __future__ import annotations
 
 import io
+import os
 import socket
 import time
 from typing import Any
@@ -134,7 +135,8 @@ class ParamikoSSHAdapter(ProtocolAdapter):
             kwargs["look_for_keys"] = False
         key_filename = target.options.get("key_filename")
         if key_filename:
-            kwargs["key_filename"] = str(key_filename)
+            # The profile may store ~/.ssh/id_ed25519; expand it per user.
+            kwargs["key_filename"] = os.path.expanduser(str(key_filename))
         if target.private_key:
             kwargs["pkey"] = _load_private_key(paramiko, target.private_key, target.passphrase)
         jump_socket = target.options.get("jump_socket")

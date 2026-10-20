@@ -51,7 +51,7 @@ class DeviceManagerPage(QWidget):
         self.env_filter = QComboBox()
         self.env_filter.currentIndexChanged.connect(self.refresh)
         self.protocol_filter = QComboBox()
-        for protocol in ("any", "ssh", "sftp", "rdp", "smb"):
+        for protocol in ("any", "ssh", "sftp", "rdp", "smb", "serial"):
             self.protocol_filter.addItem(protocol, protocol)
         self.protocol_filter.currentIndexChanged.connect(self.refresh)
 

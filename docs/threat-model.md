@@ -41,6 +41,8 @@ for this phase; their interfaces are reserved but not deployed.
 | Remote escape-sequence attack | UI spoofing, clipboard abuse | pyte parses bytes into a character grid; the renderer never interprets control sequences as application actions. OSC title changes only update a status label. |
 | Malicious model suggestion | Running attacker commands | AI suggestions are labelled unverified, ranked below verified/history, and never auto-executed. Execution still passes the policy gate. |
 | Command injection through device fields | Arbitrary local execution | No `shell=True` command construction from profile data. SSH uses paramiko channels; RDP builds an argv list passed to FreeRDP without a shell. |
+| Serial console misuse | Unauthorised device changes | A serial line has no authentication; the app only opens the local port named in a profile. Typed bytes are user-initiated and outside the command gate, exactly like a physical console cable. |
+| SSH key file substitution | Impersonation / key theft | Key files are referenced by path only (never copied); the passphrase stays in the vault. An attacker who can replace the file already has the operator's filesystem access. |
 | RDP credential exposure | Credential theft | The password is written to the FreeRDP client's standard input, never to the command line (where any local process could read it) and never to disk. |
 | Clipboard leakage | Secret exposure | Clipboard use is explicit (copy/paste). No automatic clipboard sync from remote sessions. |
 | Local attacker as the same user | Full compromise | Out of scope for app-level controls: Windows DPAPI/ACL protects the vault and data directory. Use a locked workstation and separate accounts. |

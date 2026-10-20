@@ -21,7 +21,7 @@ Services (services.py)
 |                |                | errors         | policy         |
 +----------------+----------------+----------------+----------------+
         |
-protocols: SSH/SFTP (paramiko), RDP (embedded FreeRDP), SMB 2/3 (optional)
+protocols: SSH/SFTP (paramiko), serial (pyserial), RDP (FreeRDP), SMB 2/3 (optional)
         |
 storage: SQLite + forward-only migrations, FTS5 when available
 ```
@@ -38,7 +38,10 @@ and `AuditLog` first.
    enabled and an adapter is registered, then creates a `Session` in `pending`.
 2. `SessionManager.connect(session)` resolves the route (`RoutingEngine`), asks
    the vault for the stored secret, builds a `ConnectionTarget` and drives the
-   adapter.
+   adapter. With `ssh_key` authentication the manager loads the key text and
+   passphrase from the vault (kinds `ssh_private_key` / `ssh_key_passphrase`) and
+   passes the configured key file path as `options["key_filename"]`; nothing
+   secret is written to the device profile.
 3. The adapter (e.g. `ParamikoSSHAdapter`) verifies the host key against
    `KnownHosts` before authentication. An unknown key is stored as `pending` and
    the connection is refused; the UI can show the fingerprint for explicit trust.
@@ -74,6 +77,18 @@ The Files tab works with either transport. `SessionManager` exposes connected
 resume and cancellation, so the pane's path handling (`""`/`.` is the root) is
 shared. SMB paths stay share-relative and forward-slash; `SMBAdapter._unc()`
 converts them to UNC for `smbprotocol`. SMB2/3 only - there is no SMB1 fallback.
+
+### Serial consoles
+
+`SerialAdapter` (`protocols/serial.py`) opens a local COM port or POSIX tty with
+pyserial from a device's `serial` connection (port, baud, data bits, parity,
+stop bits, flow control). It exposes a `SerialChannel` with the same
+read/write/resize/close surface as the SSH shell, so `TerminalView` attaches to
+it unchanged. Reads are non-blocking (`in_waiting`) because the view polls on the
+GUI timer. A serial line has no login, no `exec_command` and no PTY size, so
+system information is marked unavailable and the console tab rejects the
+session; typed bytes go straight to the device, outside the command gate, as
+with a physical console cable.
 
 ### One-off commands
 The SSH console tab runs `SessionManager.execute()`. `PolicyEngine.classify()`

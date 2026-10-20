@@ -1,22 +1,30 @@
 # Nexus Remote
 
 A Windows desktop workspace for remote access and device management: SSH/SFTP
-sessions, a real interactive terminal, an embedded FreeRDP desktop, device
-inventory, diagnostics and a deterministic assistant. Everything that matters
-works offline; no AI model is required to connect, diagnose or run a playbook.
+sessions, serial console connections, a real interactive terminal, an embedded
+FreeRDP desktop, device inventory, diagnostics and a deterministic assistant.
+Everything that matters works offline; no AI model is required to connect,
+diagnose or run a playbook.
 
-> **Status: early MVP (0.1.0).** SSH, SFTP, interactive terminal emulation and
-> SMB browsing are implemented. RDP is performed by the application itself
-> through the FreeRDP client, embedded in the workspace window (`mstsc.exe` is
-> not used). SMB needs the optional `smbprotocol` extra and is SMB 2/3 only.
-> Cloud discovery, NAT traversal and remote agents are deliberately deferred.
+> **Status: early MVP (0.1.0).** SSH (password, SSH agent or private key), SFTP,
+> serial consoles, interactive terminal emulation and SMB browsing are
+> implemented. RDP is performed by the application itself through the FreeRDP
+> client, embedded in the workspace window (`mstsc.exe` is not used). SMB needs
+> the optional `smbprotocol` extra and is SMB 2/3 only. Cloud discovery, NAT
+> traversal and remote agents are deliberately deferred.
 
 ## Highlights
 
 - **Device inventory** - environments, tags, criticality, per-protocol
   endpoints, groups, favourites, YAML import/export (secrets never exported).
-- **Sessions** - multiple concurrent SSH/SFTP sessions, state machine, route
-  selection, host-key pinning, audit trail.
+- **Sessions** - multiple concurrent SSH/SFTP/serial sessions, state machine,
+  route selection, host-key pinning, audit trail.
+- **SSH private keys and serial consoles** - SSH and SFTP authenticate with a
+  password from the credential vault, the SSH agent, a local key file or a key
+  pasted into the vault (with an optional passphrase, also vault-only). Serial
+  profiles open a raw COM/tty console with configurable baud, data bits, parity,
+  stop bits and flow control (detected ports are listed), for switches, routers
+  and embedded devices.
 - **Interactive terminal** - VT100/xterm emulation via `pyte`: cursor movement,
   colours, full-screen programs, scrollback, PTY resize, copy/paste, bracketed
   paste and application cursor keys.
@@ -63,6 +71,9 @@ works offline; no AI model is required to connect, diagnose or run a playbook.
 - Optional SMB support (`pip install "nexus-remote[smb]"`, which installs
   `smbprotocol`). Without it the SMB rows still appear, and connecting explains
   exactly what to install. SMB1 is never used.
+- Serial consoles need `pyserial` (installed with the package). If it is
+  missing, connecting to a serial profile explains how to install it; no other
+  feature is affected.
 
 ## Install and run
 
@@ -111,7 +122,7 @@ src/nexus_remote/
   devices/             models, repository, YAML profiles
   security/            redaction, vault, audit, known_hosts, policy
   connections/         session state machine, routing, manager
-  protocols/           SSH/SFTP, embedded FreeRDP, optional SMB
+  protocols/           SSH/SFTP, serial console, embedded FreeRDP, optional SMB
   diagnostics/         DNS, TCP, routing, interfaces, reports
   assistant/           autocomplete, history, snippets, errors, playbooks
   ui/                  PySide6 pages, theme, terminal widget, workers

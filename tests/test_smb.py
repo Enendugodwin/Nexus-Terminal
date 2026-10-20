@@ -486,6 +486,24 @@ def test_device_dialog_keeps_other_extra_options(qapp, services):
     assert rebuilt.connections["smb"].extra == {"share": "Data", "encrypt": False}
 
 
+def test_device_dialog_keeps_actions_visible_on_small_screens(qapp, services):
+    from PySide6.QtWidgets import QDialogButtonBox
+
+    from nexus_remote.ui.device_dialog import DeviceDialog
+
+    dialog = DeviceDialog(services)
+    dialog.resize(640, 400)
+    dialog.show()
+    qapp.processEvents()
+
+    buttons = dialog.findChild(QDialogButtonBox)
+    assert buttons is not None
+    assert buttons.isVisible()
+    assert buttons.geometry().bottom() <= dialog.height()
+    assert dialog.minimumHeight() <= 400
+    dialog.close()
+
+
 def test_sftp_navigation_keeps_the_dot_root(qapp, services):
     """The pane is shared: SFTP uses "." as its root, SMB the share root."""
     from nexus_remote.connections.interfaces import SessionState

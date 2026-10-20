@@ -11,6 +11,12 @@
   are never written to the database, logs or session metadata.
 - If no vault backend is available the app falls back to an in-memory backend and
   reports it as non-persistent. Do not rely on that mode for production.
+- SSH private keys are secrets too: paste a key into the vault as `ssh_private_key`
+  and its passphrase as `ssh_key_passphrase`. The device profile only stores an
+  optional key *file path*, never key material or the passphrase.
+- A serial console needs no credential and has no login; physical access to the
+  port is the access control. Its typed bytes are not command-gated (there is no
+  shell to gate) and system information is unavailable on serial sessions.
 - Revoking a device credential deletes the vault entry and its reference; deleting
   a device cascades the references but **does not** automatically delete vault
   entries. Use the Security page before removing a device if the secret must be

@@ -16,6 +16,7 @@ from nexus_remote.protocols.rdp import (
     freerdp_candidates,
     freerdp_client_path,
 )
+from nexus_remote.protocols.serial import SerialAdapter, available_serial_ports
 from nexus_remote.protocols.sftp import SFTPSession
 from nexus_remote.protocols.smb import SMBAdapter, smb_available
 from nexus_remote.protocols.ssh import ParamikoSSHAdapter, ShellChannel
@@ -25,8 +26,10 @@ __all__ = [
     "RDPAdapter",
     "SFTPSession",
     "SMBAdapter",
+    "SerialAdapter",
     "ShellChannel",
     "adapter_factories",
+    "available_serial_ports",
     "freerdp_available",
     "freerdp_candidates",
     "freerdp_client_path",
@@ -42,6 +45,7 @@ def adapter_factories(known_hosts: Any = None) -> dict[str, Callable[[], Protoco
         "sftp": lambda: SFTPSession(known_hosts=known_hosts),
         "rdp": RDPAdapter,
         "smb": SMBAdapter,
+        "serial": SerialAdapter,
     }
 
 

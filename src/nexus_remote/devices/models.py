@@ -22,8 +22,9 @@ ENVIRONMENTS = ("production", "staging", "development", "testing", "lab", "unspe
 CRITICALITIES = ("critical", "high", "standard", "low")
 
 #: Protocols the application can talk to. ``ssh``/``sftp``/``rdp``/``smb`` are
-#: implemented over phases 2 and 6; the rest are reserved for later adapters.
-PROTOCOLS = ("ssh", "sftp", "rdp", "smb", "vnc", "winrm", "https")
+#: implemented over phases 2 and 6, ``serial`` opens a local COM/tty console;
+#: the rest are reserved for later adapters.
+PROTOCOLS = ("ssh", "sftp", "rdp", "smb", "serial", "vnc", "winrm", "https")
 
 #: How a protocol authenticates. Secret material always lives in the vault.
 AUTH_METHODS = (
@@ -84,6 +85,27 @@ def normalize_host(value: str) -> str:
     if _HOSTNAME_RE.match(candidate):
         return candidate.lower()
     raise ValidationError(f"{value!r} is not a valid IP address or hostname")
+
+
+_SERIAL_PORT_RE = re.compile(
+    r"^(?:\\\\\.\\)?(COM\d{1,3})$|^(/dev/(?:tty[A-Za-z0-9._-]+|serial/by-[A-Za-z0-9._/-]+))$",
+    re.IGNORECASE,
+)
+
+
+def is_serial_port(value: str) -> bool:
+    """True for Windows COM ports (``COM3``, ``\\\\.\\COM3``) and POSIX ttys."""
+    return bool(_SERIAL_PORT_RE.match(str(value or "").strip()))
+
+
+def normalize_serial_port(value: str) -> str | None:
+    """Canonical serial port name, or ``None`` when it is not a port name."""
+    text = str(value or "").strip()
+    if not text or not is_serial_port(text):
+        return None
+    if text.upper().replace("\\\\.\\", "").startswith("COM"):
+        return text.replace("\\\\.\\", "").upper()
+    return text
 
 
 def is_ip_literal(host: str) -> bool:
@@ -200,7 +222,7 @@ class RoutingPreferences:
 def default_connections() -> dict[str, ProtocolConfig]:
     return {
         protocol: ProtocolConfig(protocol=protocol, enabled=protocol in DEFAULT_ENABLED)
-        for protocol in ("ssh", "sftp", "rdp", "smb")
+        for protocol in ("ssh", "sftp", "rdp", "smb", "serial")
     }
 
 
@@ -234,7 +256,10 @@ class Device:
             raise ValidationError("device name is required")
         if len(self.name) > 120:
             raise ValidationError("device name must be 120 characters or fewer")
-        self.hostname = normalize_host(self.hostname)
+        # A serial-only profile uses its port name as the address, so check for
+        # one first (``COM3`` would otherwise pass as a lower-cased hostname).
+        serial_port = normalize_serial_port(self.hostname)
+        self.hostname = serial_port if serial_port is not None else normalize_host(self.hostname)
         self.operating_system = _check_choice(self.operating_system, OPERATING_SYSTEMS, "operating system")
         self.environment = _check_choice(self.environment, ENVIRONMENTS, "environment")
         self.criticality = _check_choice(self.criticality, CRITICALITIES, "criticality")
@@ -272,7 +297,7 @@ class Device:
         return [name for name, cfg in self.connections.items() if cfg.enabled]
 
     def primary_protocol(self) -> str | None:
-        for candidate in ("ssh", "rdp", "smb", "sftp", "vnc", "winrm", "https"):
+        for candidate in ("ssh", "rdp", "smb", "sftp", "serial", "vnc", "winrm", "https"):
             cfg = self.connections.get(candidate)
             if cfg and cfg.enabled:
                 return candidate
