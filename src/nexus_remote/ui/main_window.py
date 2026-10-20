@@ -108,14 +108,16 @@ class MainWindow(QMainWindow):
         connections_button.clicked.connect(lambda: self._go_to(PAGE_INDEX["Workspace"]))
         profile_button = QPushButton("Workspace menu")
         menu = QMenu(self)
-        menu.addAction(_action("New connection", lambda: self._go_to(PAGE_INDEX["Workspace"])))
-        menu.addAction(_action("Assistant beside terminal", self._show_assistant))
-        menu.addAction(_action("Saved commands", lambda: self._go_to(PAGE_INDEX["Commands"])))
-        menu.addAction(_action("Run diagnostics", lambda: self._go_to(PAGE_INDEX["Diagnostics"])))
-        menu.addAction(_action("Security Center", lambda: self._go_to(PAGE_INDEX["Security"])))
-        menu.addAction(_action("Settings", lambda: self._go_to(PAGE_INDEX["Settings"])))
+        menu.addAction(
+            _action("New connection", lambda: self._go_to(PAGE_INDEX["Workspace"]), menu)
+        )
+        menu.addAction(_action("Assistant beside terminal", self._show_assistant, menu))
+        menu.addAction(_action("Saved commands", lambda: self._go_to(PAGE_INDEX["Commands"]), menu))
+        menu.addAction(_action("Run diagnostics", lambda: self._go_to(PAGE_INDEX["Diagnostics"]), menu))
+        menu.addAction(_action("Security Center", lambda: self._go_to(PAGE_INDEX["Security"]), menu))
+        menu.addAction(_action("Settings", lambda: self._go_to(PAGE_INDEX["Settings"]), menu))
         menu.addSeparator()
-        menu.addAction(_action("Exit", self.close))
+        menu.addAction(_action("Exit", self.close, menu))
         profile_button.setMenu(menu)
 
         top_bar = QWidget()
@@ -256,7 +258,9 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def _action(text: str, callback) -> QAction:
-    action = QAction(text)
+def _action(text: str, callback, parent: QWidget | None = None) -> QAction:
+    # The action must have a C++ owner: PySide6 drops an unparented QAction
+    # passed to QMenu.addAction(), leaving an empty menu behind.
+    action = QAction(text, parent) if parent is not None else QAction(text)
     action.triggered.connect(lambda _checked=False: callback())
     return action
