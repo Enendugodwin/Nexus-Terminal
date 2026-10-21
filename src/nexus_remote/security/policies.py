@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Sequence
 
 from nexus_remote.devices.models import Device, RoutingPreferences, is_ip_literal
 
@@ -267,9 +267,10 @@ class PolicyEngine:
             return False, "no relay destinations are allow-listed; relay access is denied by default"
         for entry in self.relay_allowed_destinations:
             allowed_host, _, allowed_port = entry.partition(":")
-            if _host_matches(host, allowed_host.strip()):
-                if not allowed_port or port is None or int(allowed_port) == int(port):
-                    return True, f"{host}:{port or '*'} matches allow-list entry {entry!r}"
+            if _host_matches(host, allowed_host.strip()) and (
+                not allowed_port or port is None or int(allowed_port) == int(port)
+            ):
+                return True, f"{host}:{port or '*'} matches allow-list entry {entry!r}"
         return False, f"{host}:{port or '*'} is not in the relay allow-list"
 
     def intrusive_tools_allowed(self, requested: bool) -> tuple[bool, str]:

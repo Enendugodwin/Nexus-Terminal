@@ -6,11 +6,12 @@ support cancellation and resume, and report progress through a callback.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat as stat_module
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from nexus_remote.connections.interfaces import (
     ConnectionErrorKind,
@@ -99,10 +100,8 @@ class SFTPSession(ParamikoSSHAdapter):
 
     def close(self) -> None:
         if self._sftp is not None:
-            try:
+            with contextlib.suppress(Exception):  # pragma: no cover - defensive
                 self._sftp.close()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover - defensive
-                pass
             self._sftp = None
         super().close()
 
@@ -116,7 +115,7 @@ class SFTPSession(ParamikoSSHAdapter):
         sftp = self._require_sftp()
         try:
             attributes = sftp.listdir_attr(path)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not list {path}", exc) from exc
         entries: list[RemoteEntry] = []
         for attribute in attributes:
@@ -139,7 +138,7 @@ class SFTPSession(ParamikoSSHAdapter):
         sftp = self._require_sftp()
         try:
             attribute = sftp.stat(path)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not stat {path}", exc) from exc
         mode = getattr(attribute, "st_mode", 0)
         return RemoteEntry(
@@ -155,31 +154,31 @@ class SFTPSession(ParamikoSSHAdapter):
     def mkdir(self, path: str) -> None:
         try:
             self._require_sftp().mkdir(path)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not create {path}", exc) from exc
 
     def remove(self, path: str) -> None:
         try:
             self._require_sftp().remove(path)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not delete {path}", exc) from exc
 
     def rmdir(self, path: str) -> None:
         try:
             self._require_sftp().rmdir(path)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not remove directory {path}", exc) from exc
 
     def rename(self, source: str, destination: str) -> None:
         try:
             self._require_sftp().rename(source, destination)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not rename {source}", exc) from exc
 
     def chmod(self, path: str, mode: int) -> None:
         try:
             self._require_sftp().chmod(path, mode)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not change permissions on {path}", exc) from exc
 
     # -- transfers ----------------------------------------------------------
@@ -202,7 +201,7 @@ class SFTPSession(ParamikoSSHAdapter):
         if resume:
             try:
                 remote_size = int(sftp.stat(remote_path).st_size)  # type: ignore[attr-defined]
-            except IOError:
+            except OSError:
                 remote_size = 0
             if 0 < remote_size <= total:
                 offset = remote_size
@@ -238,7 +237,7 @@ class SFTPSession(ParamikoSSHAdapter):
             result.cancelled = True
             result.message = "transfer cancelled by the user"
             return result
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"upload to {remote_path} failed", exc) from exc
         result.message = f"uploaded {total} bytes to {remote_path}"
         return result
@@ -258,7 +257,7 @@ class SFTPSession(ParamikoSSHAdapter):
         sftp = self._require_sftp()
         try:
             attribute = sftp.stat(remote_path)  # type: ignore[attr-defined]
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"could not stat {remote_path}", exc) from exc
         total = int(getattr(attribute, "st_size", 0) or 0)
         offset = 0
@@ -298,7 +297,7 @@ class SFTPSession(ParamikoSSHAdapter):
             result.cancelled = True
             result.message = "transfer cancelled by the user"
             return result
-        except IOError as exc:
+        except OSError as exc:
             raise _transfer_error(f"download of {remote_path} failed", exc) from exc
         result.message = f"downloaded {total} bytes from {remote_path}"
         return result

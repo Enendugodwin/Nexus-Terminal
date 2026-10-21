@@ -7,6 +7,7 @@ No external host is contacted.
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 import time
@@ -64,7 +65,7 @@ class _SSHServer:
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._serve, daemon=True)
 
-    def start(self) -> "_SSHServer":
+    def start(self) -> _SSHServer:
         self._thread.start()
         return self
 
@@ -76,7 +77,7 @@ class _SSHServer:
                 except OSError:
                     break
                 self._handle(connection)
-        except BaseException as exc:  # noqa: BLE001 - reported to the test thread
+        except BaseException as exc:
             self.error = exc
 
     def _handle(self, connection: socket.socket) -> None:
@@ -106,10 +107,8 @@ class _SSHServer:
 
     def stop(self) -> None:
         self._stop.set()
-        try:
+        with contextlib.suppress(OSError):
             self.socket.close()
-        except OSError:
-            pass
         self._thread.join(timeout=8)
 
 

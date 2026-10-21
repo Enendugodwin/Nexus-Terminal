@@ -105,7 +105,7 @@ def test_sorting_options(repository):
         repository.add(Device(name=name, hostname=host, environment=env))
     assert [d.name for d in repository.list(sort="name")] == ["alpha", "mike", "zeta"]
     assert [d.name for d in repository.list(sort="host")] == ["alpha", "mike", "zeta"]
-    assert [d.name for d in repository.list(sort="environment")][0] == "alpha"
+    assert next(d.name for d in repository.list(sort="environment")) == "alpha"
 
 
 def test_counts(repository, device):

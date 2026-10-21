@@ -7,7 +7,8 @@ in :func:`adapter_factories`; nothing else in the application changes.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from nexus_remote.connections.interfaces import ProtocolAdapter
 from nexus_remote.protocols.rdp import (

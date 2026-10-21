@@ -50,3 +50,29 @@ nexus_remote = [
 testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# A deliberate, stable set: real errors (E/F), import order, modern syntax,
+# bug-prone patterns (B), simplifications and measured hot-path checks (PERF).
+select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B", "C4", "SIM", "PIE", "PERF", "RUF", "N802"]
+ignore = [
+    # Deliberately broad excepts: protocol backends, the OS vault and PTY
+    # teardown must never turn a best-effort cleanup into a crash.
+    "BLE001",
+    "S110",
+    # Ambiguous unicode in prose strings is intentional (ellipsis, arrows).
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # ``str, Enum`` mixins are kept: switching to StrEnum changes how members
+    # are stringified (audit records and the UI rely on the current form).
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests drive private state and use broad assertions on purpose.
+"tests/*" = ["B017", "B011", "SLF001", "TRY002", "RUF059"]

@@ -17,7 +17,7 @@ def test_plain_text_and_cursor_position():
 
 def test_utf8_bytes_are_decoded():
     buffer = TerminalBuffer(20, 5)
-    buffer.feed("héllo ✓".encode("utf-8"))
+    buffer.feed("héllo ✓".encode())
     assert buffer.line_text(0) == "héllo ✓"
 
 
@@ -109,7 +109,7 @@ def test_control_and_alt_characters():
     assert encode_key("", "C", ctrl=True) == b"\x03"
     assert encode_key("", "[", ctrl=True) == b"\x1b"
     assert encode_key("", "x", alt=True) == b"\x1bx"
-    assert encode_key("", "é") == "é".encode("utf-8")
+    assert encode_key("", "é") == "é".encode()
 
 
 def test_unknown_key_without_text_sends_nothing():

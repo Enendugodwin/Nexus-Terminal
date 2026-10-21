@@ -29,10 +29,10 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from http.client import HTTPException
 from pathlib import Path
-from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -230,19 +230,18 @@ class UpdateChecker:
         total = 0
         try:
             response = self._opener(request, timeout=self.timeout)
-            with response:
-                with part_path.open("wb") as handle:
-                    while True:
-                        chunk = response.read(CHUNK)
-                        if not chunk:
-                            break
-                        total += len(chunk)
-                        if total > MAX_INSTALLER_BYTES:
-                            raise ValueError("the installer is larger than the allowed limit")
-                        digest.update(chunk)
-                        handle.write(chunk)
-                        if progress is not None:
-                            progress(total, info.size or 0)
+            with response, part_path.open("wb") as handle:
+                while True:
+                    chunk = response.read(CHUNK)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > MAX_INSTALLER_BYTES:
+                        raise ValueError("the installer is larger than the allowed limit")
+                    digest.update(chunk)
+                    handle.write(chunk)
+                    if progress is not None:
+                        progress(total, info.size or 0)
         except HTTPError as exc:
             part_path.unlink(missing_ok=True)
             return DownloadResult(

@@ -63,7 +63,7 @@ class _Response:
 
 
 def _opener(body: bytes, *, status: int = 200, etag: str = "", seen: list[Request] | None = None):
-    def open_url(request, timeout=None):  # noqa: ANN001 - mirrors urlopen
+    def open_url(request, timeout=None):
         if seen is not None:
             seen.append(request)
         return _Response(body, status=status, etag=etag)

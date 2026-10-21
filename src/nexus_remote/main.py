@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import sys
 import traceback
@@ -111,14 +112,12 @@ def main(argv: list[str] | None = None) -> int:
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
         log.error("unhandled exception: %s", "".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - GUI may be gone
             QMessageBox.critical(
                 None,
                 "Unexpected error",
                 f"{exc_value}\n\nThe details were written to:\n{paths.logs / 'nexus-remote.log'}",
             )
-        except Exception:  # pragma: no cover - GUI may already be gone
-            pass
 
     sys.excepthook = handle_exception
 

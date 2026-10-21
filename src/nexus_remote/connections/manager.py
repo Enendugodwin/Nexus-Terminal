@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 from nexus_remote.assistant.command_history import CommandHistory, CommandStatus
 from nexus_remote.connections.interfaces import (

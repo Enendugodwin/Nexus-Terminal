@@ -9,10 +9,10 @@ loopback interface.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
-import uuid
 
 from nexus_remote.assistant.model_adapters import (
     AnthropicModel,
@@ -150,7 +150,7 @@ def preset_for(key: str) -> ProviderPreset:
     return PRESETS_BY_KEY.get((key or "").strip(), PRESETS_BY_KEY["disabled"])
 
 
-def load_ai_config(database: "Database") -> AIConfig:
+def load_ai_config(database: Database) -> AIConfig:
     """Load settings, migrating the pre-0.3 Ollama-only keys."""
 
     def setting(name: str, default: str = "") -> str:
@@ -216,10 +216,8 @@ def build_model(
     preset = config.preset
 
     if preset.api_style == "ollama":
-        if endpoint.endswith("/api/generate"):
-            host = endpoint[: -len("/api/generate")]
-        else:
-            host = endpoint
+        suffix = "/api/generate"
+        host = endpoint[: -len(suffix)] if endpoint.endswith(suffix) else endpoint
         return OllamaModel(
             model=model_name,
             host=host,

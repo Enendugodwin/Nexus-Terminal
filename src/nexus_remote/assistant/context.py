@@ -8,7 +8,7 @@ characters so a question never turns into a large upload.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 #: How many trailing output lines a snapshot may carry.
 MAX_LINES = 20

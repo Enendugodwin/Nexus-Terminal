@@ -13,6 +13,7 @@ plus a ``closed`` flag.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import queue
 import shutil
@@ -53,7 +54,7 @@ def available_shells() -> list[ShellOption]:
 
     options: list[ShellOption] = []
     if sys.platform == "win32":
-        system_root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
+        system_root = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"))
         windows_powershell = (
             system_root / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
         )
@@ -63,7 +64,12 @@ def available_shells() -> list[ShellOption]:
             )
     pwsh = shutil.which("pwsh")
     if not pwsh and sys.platform == "win32":
-        candidate = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "PowerShell" / "7" / "pwsh.exe"
+        candidate = (
+            Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+            / "PowerShell"
+            / "7"
+            / "pwsh.exe"
+        )
         if candidate.is_file():
             pwsh = str(candidate)
     if pwsh:
@@ -145,7 +151,7 @@ def _spawn_process(argv: list[str], cwd: str, size: tuple[int, int]):
     reports an error in seconds instead of half a minute.
     """
 
-    from winpty import Backend, PTY, PtyProcess
+    from winpty import PTY, Backend, PtyProcess
 
     environment = dict(os.environ)
     env_block = "\0".join(f"{key}={value}" for key, value in environment.items()) + "\0"
@@ -182,14 +188,10 @@ def _close_late_process(outcome: dict[str, object], worker: threading.Thread) ->
     process = outcome.get("process")
     if process is None:
         return
-    try:  # pragma: no cover - only runs after a timeout
+    with contextlib.suppress(Exception):  # pragma: no cover - after a timeout
         process.terminate(force=True)
-    except Exception:
-        pass
-    try:  # pragma: no cover - only runs after a timeout
+    with contextlib.suppress(Exception):  # pragma: no cover - after a timeout
         process.close(force=True)
-    except Exception:
-        pass
 
 
 class PtyChannel:
@@ -214,7 +216,7 @@ class PtyChannel:
         label: str = "",
         arguments: tuple[str, ...] = (),
         timeout: float = SPAWN_TIMEOUT_SECONDS,
-    ) -> "PtyChannel":
+    ) -> PtyChannel:
         if sys.platform != "win32":  # pragma: no cover - the packaged app is Windows
             raise HostShellUnavailable("the local PowerShell console is a Windows feature")
         try:
@@ -317,14 +319,10 @@ class PtyChannel:
     def close(self) -> None:
         self._closed.set()
         process = self._process
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - already gone
             process.terminate(force=True)
-        except Exception:  # pragma: no cover - already gone
-            pass
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - already gone
             process.close(force=True)
-        except Exception:  # pragma: no cover - already gone
-            pass
 
     # -- background reader --------------------------------------------------
     def _read_loop(self) -> None:

@@ -67,7 +67,7 @@ class Paths:
     def exports(self) -> Path:
         return self.root / "exports"
 
-    def ensure(self) -> "Paths":
+    def ensure(self) -> Paths:
         for path in (self.root, self.logs, self.exports):
             path.mkdir(parents=True, exist_ok=True)
         return self

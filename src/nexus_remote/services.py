@@ -139,7 +139,7 @@ class AppServices:
             # key is dropped simply because a local server would not need one.
             key = self.ai_api_key(config.provider)
             model = build_model(config, api_key=key)
-        except Exception:  # noqa: BLE001 - bad settings must not break startup
+        except Exception:
             model = NullModel()
         self.models.configure(model)
 

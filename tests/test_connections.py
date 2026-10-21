@@ -6,8 +6,8 @@ import pytest
 
 from nexus_remote.connections.interfaces import (
     CommandResult,
-    ConnectResult,
     ConnectionErrorKind,
+    ConnectResult,
     ProtocolAdapter,
     ProtocolError,
     RouteKind,

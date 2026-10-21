@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from nexus_remote.devices.models import (
     Device,
@@ -337,7 +339,13 @@ class DeviceRepository:
                 notes=row["notes"],
                 favorite=bool(row["favorite"]),
                 group_id=row["group_id"],
-                group_name=(row["group_name"] if "group_name" in row.keys() and row["group_name"] else ""),
+                # sqlite3.Row iterates values, so ``in row`` would test values;
+                # ``keys()`` is the only correct membership check here.
+                group_name=(
+                    row["group_name"]
+                    if "group_name" in row.keys() and row["group_name"]  # noqa: SIM118
+                    else ""
+                ),
                 connections=connections.get(row["id"], {}) or {},
                 routing=routing.get(row["id"], RoutingPreferences()),
                 last_connected_at=row["last_connected_at"],
@@ -345,12 +353,10 @@ class DeviceRepository:
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
             )
-            try:
+            # A profile stored by an older version may not satisfy current
+            # rules; keep it visible rather than silently dropping it.
+            with contextlib.suppress(ValidationError):
                 device.validate()
-            except ValidationError:
-                # A profile stored by an older version may not satisfy current
-                # rules; keep it visible rather than silently dropping it.
-                pass
             devices.append(device)
         return devices
 

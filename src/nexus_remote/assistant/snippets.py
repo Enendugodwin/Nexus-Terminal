@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from nexus_remote.assistant.command_history import CommandRecord
 from nexus_remote.storage.database import Database

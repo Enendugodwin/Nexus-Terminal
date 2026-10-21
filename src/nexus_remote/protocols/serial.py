@@ -10,6 +10,7 @@ the GUI timer; blocking for a full read timeout there would freeze the window.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from nexus_remote.connections.interfaces import (
@@ -71,10 +72,8 @@ class SerialChannel:
         return  # a serial line has no PTY size
 
     def close(self) -> None:
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - defensive
             self._port.close()
-        except Exception:  # pragma: no cover - defensive
-            pass
 
 
 class SerialAdapter(ProtocolAdapter):
@@ -169,10 +168,8 @@ class SerialAdapter(ProtocolAdapter):
 
     def close(self) -> None:
         if self._port is not None:
-            try:
+            with contextlib.suppress(Exception):  # pragma: no cover - defensive
                 self._port.close()
-            except Exception:  # pragma: no cover - defensive
-                pass
         self._port = None
         self._connected = False
 

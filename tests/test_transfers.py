@@ -48,7 +48,7 @@ class FakeSFTP:
     def stat(self, path: str):
         self.calls.append(("stat", (path,)))
         if path not in self.files:
-            raise IOError(2, "No such file")
+            raise OSError(2, "No such file")
         return SimpleNamespace(st_size=len(self.files[path]), st_mode=stat.S_IFREG | 0o644, st_mtime=1_700_000_000)
 
     def listdir_attr(self, path: str):

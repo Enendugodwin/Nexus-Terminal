@@ -8,9 +8,9 @@ Remote output is untrusted input and is never treated as instructions.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Sequence
 
 from nexus_remote.util import json_loads
 
@@ -55,11 +55,9 @@ class ErrorDiagnosis:
 
     def render(self) -> str:
         lines = ["ERROR DETECTED", f"{self.title}", "", "Possible causes:"]
-        for index, cause in enumerate(self.causes, start=1):
-            lines.append(f"{index}. {cause}")
+        lines.extend(f"{index}. {cause}" for index, cause in enumerate(self.causes, start=1))
         lines.extend(["", "Suggested checks:"])
-        for step in self.next_steps:
-            lines.append(f"- {step}")
+        lines.extend(f"- {step}" for step in self.next_steps)
         lines.extend(
             [
                 "",
@@ -390,20 +388,18 @@ class ErrorDiagnosisEngine:
     def load_stored_rules(self, database: object) -> list[ErrorRule]:
         """Load user-confirmed error knowledge from the ``known_errors`` table."""
         rows = database.query("SELECT * FROM known_errors")  # type: ignore[attr-defined]
-        rules: list[ErrorRule] = []
-        for row in rows:
-            rules.append(
-                ErrorRule(
-                    id=row["id"],
-                    title=row["title"],
-                    patterns=(row["pattern"],),
-                    causes=tuple(json_loads(row["causes"], [])),
-                    next_steps=tuple(json_loads(row["next_steps"], [])),
-                    environments=(row["environment"],) if row["environment"] != "any" else ("any",),
-                    source=row["source"] or "Learned from your sessions",
-                )
+        return [
+            ErrorRule(
+                id=row["id"],
+                title=row["title"],
+                patterns=(row["pattern"],),
+                causes=tuple(json_loads(row["causes"], [])),
+                next_steps=tuple(json_loads(row["next_steps"], [])),
+                environments=(row["environment"],) if row["environment"] != "any" else ("any",),
+                source=row["source"] or "Learned from your sessions",
             )
-        return rules
+            for row in rows
+        ]
 
     def rule_ids(self) -> Iterable[str]:
         return (rule.id for rule in self.rules)

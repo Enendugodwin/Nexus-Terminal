@@ -1300,7 +1300,7 @@ class WorkspacePage(QWidget):
         session = self._remote_session()
         if session is None or session.adapter is None:
             return
-        selected = [item for item in self.remote_list.selectedItems()]
+        selected = list(self.remote_list.selectedItems())
         if not selected:
             return
         target = str(selected[0].data(Qt.ItemDataRole.UserRole))

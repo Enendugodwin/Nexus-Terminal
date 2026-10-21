@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from contextlib import contextmanager
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Iterator, Sequence
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
@@ -23,10 +23,8 @@ def supports_fts5(connection: sqlite3.Connection) -> bool:
     except sqlite3.OperationalError:
         return False
     finally:
-        try:
+        with suppress(sqlite3.OperationalError):
             connection.execute("DROP TABLE IF EXISTS temp.__fts5_probe")
-        except sqlite3.OperationalError:
-            pass
     return True
 
 
@@ -64,7 +62,7 @@ class Database:
             raise RuntimeError("Database.initialize() must be called before use")
         return self._connection
 
-    def initialize(self) -> "Database":
+    def initialize(self) -> Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
@@ -81,7 +79,7 @@ class Database:
             self._connection.close()
             self._connection = None
 
-    def __enter__(self) -> "Database":
+    def __enter__(self) -> Database:
         return self.initialize() if self._connection is None else self
 
     def __exit__(self, *_exc: object) -> None:

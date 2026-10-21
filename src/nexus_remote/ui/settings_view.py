@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (
 
 from nexus_remote import config
 from nexus_remote.assistant.providers import (
-    AIConfig,
     PROVIDERS,
+    AIConfig,
     build_model,
     preset_for,
     validate_endpoint,

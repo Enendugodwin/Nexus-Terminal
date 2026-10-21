@@ -8,6 +8,7 @@ unknown or changed key aborts the connection.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import socket
@@ -60,7 +61,7 @@ class ShellChannel:
                 return self._channel.recv(max_bytes)
             if self._channel.recv_stderr_ready():
                 return self._channel.recv_stderr(max_bytes)
-        except socket.timeout:
+        except TimeoutError:
             return b""
         except Exception:  # pragma: no cover - channel closed underneath us
             return b""
@@ -68,16 +69,12 @@ class ShellChannel:
 
     def resize(self, width: int, height: int) -> None:
         self.width, self.height = width, height
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - server dependent
             self._channel.resize_pty(width=width, height=height)
-        except Exception:  # pragma: no cover - server dependent
-            pass
 
     def close(self) -> None:
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - defensive
             self._channel.close()
-        except Exception:  # pragma: no cover - defensive
-            pass
 
 
 class ParamikoSSHAdapter(ProtocolAdapter):
@@ -187,7 +184,7 @@ class ParamikoSSHAdapter(ProtocolAdapter):
                 kind=ConnectionErrorKind.DNS,
                 detail=str(exc),
             ) from exc
-        except (socket.timeout, TimeoutError) as exc:
+        except TimeoutError as exc:
             raise ProtocolError(
                 f"connection to {target.endpoint()} timed out",
                 kind=ConnectionErrorKind.TIMEOUT,
@@ -271,10 +268,8 @@ class ParamikoSSHAdapter(ProtocolAdapter):
     # -- teardown -----------------------------------------------------------
     def close(self) -> None:
         if self._client is not None:
-            try:
+            with contextlib.suppress(Exception):  # pragma: no cover - defensive
                 self._client.close()
-            except Exception:  # pragma: no cover - defensive
-                pass
         self._client = None
         self._connected = False
 

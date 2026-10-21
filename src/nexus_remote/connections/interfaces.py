@@ -145,7 +145,7 @@ class ProtocolAdapter(ABC):
     def open_shell(self, term_size: tuple[int, int] = (120, 32)) -> Any:
         raise NotImplementedError(f"{self.protocol} adapter does not support interactive shells")
 
-    def __enter__(self) -> "ProtocolAdapter":
+    def __enter__(self) -> ProtocolAdapter:
         return self
 
     def __exit__(self, *_exc: object) -> None:

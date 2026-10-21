@@ -41,7 +41,7 @@ def tcp_check(host: str, port: int, timeout: float = 5.0) -> DiagnosticResult:
     sock.settimeout(timeout)
     try:
         sock.connect((host, port))
-    except socket.timeout:
+    except TimeoutError:
         elapsed = (time.perf_counter() - started) * 1000
         return DiagnosticResult(
             test=label,
@@ -118,7 +118,7 @@ def protocol_probe(host: str, port: int, timeout: float = 5.0, *, max_bytes: int
         sock.connect((host, port))
         try:
             banner = sock.recv(max_bytes)
-        except socket.timeout:
+        except TimeoutError:
             return DiagnosticResult(
                 test="Protocol probe",
                 destination=destination,
@@ -131,7 +131,7 @@ def protocol_probe(host: str, port: int, timeout: float = 5.0, *, max_bytes: int
                 next_step="use the protocol-specific client to complete the handshake",
                 duration_ms=(time.perf_counter() - started) * 1000,
             )
-    except (OSError, socket.timeout) as exc:
+    except (TimeoutError, OSError) as exc:
         elapsed = (time.perf_counter() - started) * 1000
         return DiagnosticResult(
             test="Protocol probe",

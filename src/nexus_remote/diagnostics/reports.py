@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from nexus_remote.diagnostics import dns as dns_checks
 from nexus_remote.diagnostics import routing as routing_checks
@@ -72,8 +72,7 @@ class DiagnosticReport:
         if self.next_steps:
             lines.append("")
             lines.append("RECOMMENDED NEXT STEPS")
-            for step in self.next_steps:
-                lines.append(f"  - {step}")
+            lines.extend(f"  - {step}" for step in self.next_steps)
         return "\n".join(lines)
 
     def as_rows(self) -> list[dict[str, str]]:
@@ -144,10 +143,10 @@ class DiagnosticsRunner:
 
     def run_for_device(self, device: object, *, include_ping: bool = False) -> DiagnosticReport:
         """Convenience wrapper for a Device/protocol pair."""
-        protocol = getattr(device, "primary_protocol")()
-        hostname = getattr(device, "hostname")
+        protocol = device.primary_protocol()
+        hostname = device.hostname
         port = None
-        cfg = getattr(device, "connection")(protocol) if protocol else None
+        cfg = device.connection(protocol) if protocol else None
         if cfg is not None:
             port = cfg.port
         return self.run(hostname, port, protocol=protocol, include_ping=include_ping)

@@ -14,9 +14,9 @@ exactly the same path handling it uses for SFTP.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from nexus_remote.connections.interfaces import (
     ConnectionErrorKind,

@@ -14,6 +14,7 @@ that is only ever rendered, never executed or evaluated.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
@@ -243,8 +244,7 @@ class TerminalBuffer:
             line = self.line_text(start_row, strip=False)
             return line[start_col : end_col + 1].rstrip()
         pieces = [self.line_text(start_row, strip=False)[start_col:].rstrip()]
-        for row in range(start_row + 1, end_row):
-            pieces.append(self.line_text(row))
+        pieces.extend(self.line_text(row) for row in range(start_row + 1, end_row))
         pieces.append(self.line_text(end_row, strip=False)[: end_col + 1].rstrip())
         return "\n".join(pieces)
 
@@ -310,10 +310,8 @@ class TerminalView(QWidget):
     def detach(self) -> None:
         self._timer.stop()
         if self.channel is not None:
-            try:
+            with contextlib.suppress(Exception):  # pragma: no cover - defensive
                 self.channel.close()
-            except Exception:  # pragma: no cover - defensive
-                pass
         self.channel = None
         self.session_id = ""
         self._scroll = 0
@@ -412,10 +410,8 @@ class TerminalView(QWidget):
         self._last_columns, self._last_rows = columns, rows
         self.buffer.resize(columns, rows)
         if self.channel is not None:
-            try:
+            with contextlib.suppress(Exception):  # pragma: no cover - server dependent
                 self.channel.resize(columns, rows)
-            except Exception:  # pragma: no cover - server dependent
-                pass
         self._trim_scroll()
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802 - Qt API

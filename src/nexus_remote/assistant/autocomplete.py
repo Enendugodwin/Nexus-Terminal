@@ -8,9 +8,9 @@ shell boundaries: a Cisco command is not offered in a bash session.
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Sequence
 
 from nexus_remote.assistant.builtin_catalog import CATALOG as _CATALOG
 

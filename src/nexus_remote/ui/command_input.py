@@ -91,7 +91,7 @@ class SuggestionLineEdit(QLineEdit):
             self.update()
 
     # -- input --------------------------------------------------------------
-    def event(self, event) -> bool:  # noqa: N802 - Qt override
+    def event(self, event) -> bool:
         """Accept on Tab before Qt turns it into focus traversal.
 
         ``QWidget.event()`` consumes Tab for focus navigation before

@@ -7,8 +7,8 @@ Transitions are validated so a session cannot silently jump from ``failed`` to
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from nexus_remote.connections.interfaces import RouteKind, SessionState
 from nexus_remote.util import utcnow_iso

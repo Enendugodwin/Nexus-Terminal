@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 MASK = "***REDACTED***"
 
@@ -93,7 +93,7 @@ def redact_output(text: str, extra_secrets: Iterable[str] | None = None) -> str:
 class RedactingFilter(logging.Filter):
     """Logging filter that redacts secrets from messages and arguments."""
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003 - logging API
+    def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
         except Exception:  # pragma: no cover - defensive

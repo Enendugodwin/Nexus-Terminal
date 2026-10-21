@@ -9,8 +9,9 @@ from __future__ import annotations
 import ipaddress
 import re
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from nexus_remote import config
 from nexus_remote.util import json_dumps, utcnow_iso
@@ -160,7 +161,7 @@ class ProtocolConfig:
         return payload
 
     @classmethod
-    def from_dict(cls, protocol: str, payload: dict[str, Any] | None) -> "ProtocolConfig":
+    def from_dict(cls, protocol: str, payload: dict[str, Any] | None) -> ProtocolConfig:
         data = dict(payload or {})
         return cls(
             protocol=protocol,
@@ -207,7 +208,7 @@ class RoutingPreferences:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any] | None) -> "RoutingPreferences":
+    def from_dict(cls, payload: dict[str, Any] | None) -> RoutingPreferences:
         data = dict(payload or {})
         return cls(
             preferred_method=data.get("preferred_method", "direct"),
@@ -250,7 +251,7 @@ class Device:
     created_at: str = field(default_factory=utcnow_iso)
     updated_at: str = field(default_factory=utcnow_iso)
 
-    def validate(self) -> "Device":
+    def validate(self) -> Device:
         self.name = str(self.name or "").strip()
         if not self.name:
             raise ValidationError("device name is required")
@@ -351,7 +352,7 @@ class Device:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "Device":
+    def from_dict(cls, payload: dict[str, Any]) -> Device:
         data = dict(payload or {})
         connections = {
             name: ProtocolConfig.from_dict(name, cfg)

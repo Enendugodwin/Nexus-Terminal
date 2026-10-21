@@ -22,11 +22,12 @@ last good file.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -205,7 +206,7 @@ def write_catalog(
         "vendor": catalog.vendor,
         "source": source,
         "etag": etag,
-        "fetched_at": fetched_at or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "fetched_at": fetched_at or datetime.now(UTC).isoformat(timespec="seconds"),
         "environments": {
             environment: [
                 {"command": command, "summary": summary} for command, summary in entries
@@ -223,10 +224,8 @@ def write_catalog(
             os.fsync(stream.fileno())
         os.replace(temporary, destination)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(temporary)
-        except OSError:
-            pass
         raise
 
 

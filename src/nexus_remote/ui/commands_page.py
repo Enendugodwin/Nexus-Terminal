@@ -170,7 +170,7 @@ class CommandDialog(QDialog):
     def _tags(self) -> list[str]:
         return sorted({tag.strip() for tag in self.tags_edit.text().split(",") if tag.strip()})
 
-    def accept(self) -> None:  # noqa: N802 - Qt API
+    def accept(self) -> None:
         command = self.command_edit.text().strip()
         if not command:
             QMessageBox.warning(self, "Nothing to save", "A saved command needs a command.")

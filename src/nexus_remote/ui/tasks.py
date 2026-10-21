@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal, Slot
 
 
 class WorkerSignals(QObject):
@@ -15,7 +16,7 @@ class WorkerSignals(QObject):
 
 
 #: Workers are kept alive until their queued callbacks have been delivered.
-_ACTIVE_WORKERS: set["Worker"] = set()
+_ACTIVE_WORKERS: set[Worker] = set()
 
 
 class Worker(QRunnable):

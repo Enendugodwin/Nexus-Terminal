@@ -8,8 +8,9 @@ smuggle a secret key is rejected on export, and ignored on import.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import yaml
 

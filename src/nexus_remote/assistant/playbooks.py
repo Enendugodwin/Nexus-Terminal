@@ -219,11 +219,11 @@ class PlaybookLibrary:
         lowered = (text or "").casefold()
         if not lowered:
             return []
-        matches = []
-        for playbook in self.playbooks:
-            if any(symptom in lowered for symptom in playbook.symptoms):
-                matches.append(playbook)
-        return matches
+        return [
+            playbook
+            for playbook in self.playbooks
+            if any(symptom in lowered for symptom in playbook.symptoms)
+        ]
 
     def render(self, key: str) -> str:
         playbook = self.get(key)

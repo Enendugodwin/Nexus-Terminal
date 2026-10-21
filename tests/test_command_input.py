@@ -340,7 +340,7 @@ class _FakeShell:
     def __init__(self) -> None:
         self.written: list[bytes] = []
 
-    def write(self, data) -> None:  # noqa: ANN001 - mirrors paramiko
+    def write(self, data) -> None:
         self.written.append(data if isinstance(data, bytes) else data.encode())
 
     def read(self, timeout: float = 0.0, max_bytes: int = 65536) -> bytes:

@@ -148,7 +148,7 @@ def local_dns_servers() -> list[str]:
     else:
         resolv = "/etc/resolv.conf"
         try:
-            with open(resolv, "r", encoding="utf-8", errors="replace") as handle:
+            with open(resolv, encoding="utf-8", errors="replace") as handle:
                 for line in handle:
                     stripped = line.strip()
                     if stripped.startswith("nameserver"):

@@ -23,14 +23,14 @@ class _FakeStat:
 
 
 class _FakeOpenFile:
-    def __init__(self, client: "FakeSMBClient", path: str, mode: str) -> None:
+    def __init__(self, client: FakeSMBClient, path: str, mode: str) -> None:
         self.client = client
         self.path = path
         self.mode = mode
         self.buffer = bytearray(client.files.get(path, b"") if ("r" in mode or "+" in mode or "a" in mode) else b"")
         self.pos = 0
 
-    def __enter__(self) -> "_FakeOpenFile":
+    def __enter__(self) -> _FakeOpenFile:
         return self
 
     def __exit__(self, *_exc: object) -> None:

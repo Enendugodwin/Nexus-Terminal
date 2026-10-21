@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Iterator, TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -16,7 +17,7 @@ CHUNK_SIZE = 512 * 1024
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def utcnow_iso() -> str:
@@ -31,7 +32,7 @@ def parse_iso(value: str | None) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -87,10 +88,7 @@ def searchable(haystack: str, needle: str) -> bool:
     if not needle:
         return True
     hay = haystack.casefold()
-    for term in needle.casefold().split():
-        if term not in hay:
-            return False
-    return True
+    return all(term in hay for term in needle.casefold().split())
 
 
 def first_of(values: Iterable[T | None]) -> T | None:

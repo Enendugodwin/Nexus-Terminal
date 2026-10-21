@@ -17,6 +17,7 @@ Security notes
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -411,17 +412,13 @@ class RDPAdapter(ProtocolAdapter):
         self._embed_parent = 0
         if process is None or process.poll() is not None:
             return
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - defensive
             process.terminate()
-        except Exception:  # pragma: no cover - defensive
-            pass
         try:
             process.wait(timeout=3)
         except Exception:  # pragma: no cover - client ignored terminate
-            try:
+            with contextlib.suppress(Exception):
                 process.kill()
-            except Exception:
-                pass
 
     # -- command construction ----------------------------------------------
     def build_command(self, target: ConnectionTarget, options: RDPOptions | None = None) -> list[str]:

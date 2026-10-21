@@ -21,9 +21,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -789,19 +789,10 @@ class AssistantPanel(QWidget):
 
 
 _COMMAND_VERBS = frozenset(
-    """
-    apt awk cat cd chmod chown curl cut date df dig dir dmesg docker dnf du echo env
-    export file find free getent git grep head history host hostname htop ifconfig ip
-    ipconfig journalctl kubectl last less ls lsblk lsof md5sum mkdir more mount mv
-    netstat nmap nslookup openssl pacman ping pip powershell printenv ps pwd python
-    reg route sc scp sed sftp sha256sum show sort ssh stat ss sudo systemctl tail tar
-    tasklist taskkill tee top tracert traceroute type uname uniq uptime ver w wget wc
-    where who whoami winget wmic yum
-    """.split()
+    ["apt", "awk", "cat", "cd", "chmod", "chown", "curl", "cut", "date", "df", "dig", "dir", "dmesg", "docker", "dnf", "du", "echo", "env", "export", "file", "find", "free", "getent", "git", "grep", "head", "history", "host", "hostname", "htop", "ifconfig", "ip", "ipconfig", "journalctl", "kubectl", "last", "less", "ls", "lsblk", "lsof", "md5sum", "mkdir", "more", "mount", "mv", "netstat", "nmap", "nslookup", "openssl", "pacman", "ping", "pip", "powershell", "printenv", "ps", "pwd", "python", "reg", "route", "sc", "scp", "sed", "sftp", "sha256sum", "show", "sort", "ssh", "stat", "ss", "sudo", "systemctl", "tail", "tar", "tasklist", "taskkill", "tee", "top", "tracert", "traceroute", "type", "uname", "uniq", "uptime", "ver", "w", "wget", "wc", "where", "who", "whoami", "winget", "wmic", "yum"]
 )
 _PS_VERBS = frozenset(
-    "add clear close copy disable enable export get import invoke move new out remove "
-    "rename restart resolve select set start stop test where write".split()
+    ["add", "clear", "close", "copy", "disable", "enable", "export", "get", "import", "invoke", "move", "new", "out", "remove", "rename", "restart", "resolve", "select", "set", "start", "stop", "test", "where", "write"]
 )
 
 
@@ -826,9 +817,7 @@ def _looks_like_command(text: str) -> bool:
         return True
     if "/" in first or "\\" in first:
         return True
-    if "-" in first and first.split("-", 1)[0] in _PS_VERBS:
-        return True
-    return False
+    return "-" in first and first.split("-", 1)[0] in _PS_VERBS
 
 
 def _note(text: str) -> QLabel:

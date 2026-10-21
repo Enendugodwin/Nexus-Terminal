@@ -14,8 +14,9 @@ import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from nexus_remote.config import APP_NAME, APP_VERSION
 
@@ -211,10 +212,11 @@ def _openai_text(body: dict[str, Any]) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        pieces: list[str] = []
-        for part in content:
-            if isinstance(part, dict) and isinstance(part.get("text"), str):
-                pieces.append(part["text"])
+        pieces = [
+            part["text"]
+            for part in content
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        ]
         return "\n".join(pieces)
     return ""
 
@@ -227,16 +229,18 @@ def _openai_finish(body: dict[str, Any]) -> str:
 
 
 def _gemini_text(body: dict[str, Any]) -> str:
-    pieces: list[str] = []
     candidates = body.get("candidates")
-    if isinstance(candidates, list) and candidates:
-        content = candidates[0].get("content") if isinstance(candidates[0], dict) else {}
-        parts = content.get("parts") if isinstance(content, dict) else []
-        if isinstance(parts, list):
-            for part in parts:
-                if isinstance(part, dict) and isinstance(part.get("text"), str):
-                    pieces.append(part["text"])
-    return "\n".join(pieces)
+    if not isinstance(candidates, list) or not candidates:
+        return ""
+    content = candidates[0].get("content") if isinstance(candidates[0], dict) else {}
+    parts = content.get("parts") if isinstance(content, dict) else []
+    if not isinstance(parts, list):
+        return ""
+    return "\n".join(
+        part["text"]
+        for part in parts
+        if isinstance(part, dict) and isinstance(part.get("text"), str)
+    )
 
 
 def _gemini_finish(body: dict[str, Any]) -> str:
@@ -426,14 +430,15 @@ class AnthropicModel(AssistantModel):
             headers=self._headers(),
             timeout=self.timeout,
         )
-        pieces: list[str] = []
         content = body.get("content")
-        if isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and isinstance(part.get("text"), str):
-                    pieces.append(part["text"])
         return ModelResponse(
-            text="\n".join(pieces), provider=self.name, model=self.model
+            text="\n".join(
+                part["text"]
+                for part in (content if isinstance(content, list) else [])
+                if isinstance(part, dict) and isinstance(part.get("text"), str)
+            ),
+            provider=self.name,
+            model=self.model,
         )
 
 

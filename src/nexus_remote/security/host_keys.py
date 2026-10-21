@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from nexus_remote.storage.database import Database
 from nexus_remote.util import utcnow_iso
@@ -259,7 +260,7 @@ def load_known_hosts_file(path: str | Path) -> Iterable[tuple[str, str, str]]:
     entries: list[tuple[str, str, str]] = []
     for raw in source.read_text(encoding="utf-8", errors="replace").splitlines():
         line = raw.strip()
-        if not line or line.startswith("#") or line.startswith("|"):
+        if not line or line.startswith(("#", "|")):
             continue
         parts = line.split()
         if len(parts) >= 3:

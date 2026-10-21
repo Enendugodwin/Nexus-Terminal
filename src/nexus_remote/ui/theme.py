@@ -9,8 +9,10 @@ switching a theme at runtime needs no widget rebuild.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -490,10 +492,8 @@ def _palette() -> Any:
 def apply_theme(application: Any, name: str | None = None) -> str:
     """Apply (and remember) a theme on a QApplication. Returns the theme id."""
     selected = set_theme(name or _ACTIVE)
-    try:
+    with contextlib.suppress(Exception):  # pragma: no cover - style plugin missing
         application.setStyle("Fusion")
-    except Exception:  # pragma: no cover - style plugin availability
-        pass
     application.setPalette(_palette())
     application.setStyleSheet(stylesheet())
     return selected
