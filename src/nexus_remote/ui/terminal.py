@@ -17,7 +17,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -277,6 +277,10 @@ class TerminalView(QWidget):
         self._italic.setItalic(True)
         self._bold_italic = QFont(self._bold)
         self._bold_italic.setItalic(True)
+        self._advance = 1.0
+        self._line_height = 1.0
+        self._ascent = 1.0
+        self._refresh_metrics()
 
         self._scroll = 0  # lines above the bottom
         self._anchor: tuple[int, int] | None = None
@@ -376,11 +380,15 @@ class TerminalView(QWidget):
         if self.channel is None:
             return
         received = b""
-        for _ in range(8):  # bounded so a flooding remote cannot starve the UI
-            chunk = self.channel.read(timeout=0.0, max_bytes=65536)
-            if not chunk:
-                break
-            received += chunk
+        try:
+            for _ in range(8):  # bounded so a flooding remote cannot starve the UI
+                chunk = self.channel.read(timeout=0.0, max_bytes=65536)
+                if not chunk:
+                    break
+                received += chunk
+        except Exception as exc:  # a dead socket must not break the timer slot
+            self._channel_failed(exc)
+            return
         if received:
             self.feed(received)
             title = self.buffer.title
@@ -389,22 +397,47 @@ class TerminalView(QWidget):
             if b"\x07" in received:
                 self.bell.emit()
         elif getattr(self.channel, "closed", False):
-            self._timer.stop()
-            self.feed("\r\n[connection closed]\r\n")
-            session_id, self.session_id = self.session_id, ""
-            self.channel = None
-            self.closed.emit(session_id)
+            self._channel_failed(None)
+
+    def _channel_failed(self, exc: BaseException | None = None) -> None:
+        """Stop reading, tell the operator why, and emit ``closed`` once."""
+
+        self._timer.stop()
+        reason = f"[read failed: {exc}]" if exc is not None else "[connection closed]"
+        self.feed(f"\r\n{reason}\r\n")
+        session_id, self.session_id = self.session_id, ""
+        self.channel = None
+        self.closed.emit(session_id)
 
     # -- geometry -----------------------------------------------------------
     def term_size(self) -> tuple[int, int]:
         return self._last_columns or 80, self._last_rows or 24
 
-    def _apply_geometry(self) -> None:
+    def _refresh_metrics(self) -> None:
+        """Measure the font once instead of on every paint and mouse move.
+
+        The terminal repaints on every chunk of output, so building
+        ``QFontMetricsF`` three times per frame (and again for each pointer
+        event) was measurable. Font or display-scale changes invalidate it.
+        """
+
         metrics = QFontMetricsF(self._font)
-        advance = max(1.0, metrics.horizontalAdvance("M"))
-        line_height = max(1.0, metrics.height())
-        columns = max(20, int((self.width() - 2 * self.PADDING) // advance))
-        rows = max(4, int((self.height() - 2 * self.PADDING) // line_height))
+        self._advance = max(1.0, metrics.horizontalAdvance("M"))
+        self._line_height = max(1.0, metrics.height())
+        self._ascent = metrics.ascent()
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 - Qt API
+        if event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.DevicePixelRatioChange,
+        ):
+            self._refresh_metrics()
+            self._apply_geometry()
+        super().changeEvent(event)
+
+    def _apply_geometry(self) -> None:
+        columns = max(20, int((self.width() - 2 * self.PADDING) // self._advance))
+        rows = max(4, int((self.height() - 2 * self.PADDING) // self._line_height))
         if (columns, rows) == (self._last_columns, self._last_rows):
             return
         self._last_columns, self._last_rows = columns, rows
@@ -431,10 +464,9 @@ class TerminalView(QWidget):
             painter.end()
 
     def _paint(self, painter: QPainter) -> None:
-        metrics = QFontMetricsF(self._font)
-        advance = max(1.0, metrics.horizontalAdvance("M"))
-        line_height = max(1.0, metrics.height())
-        ascent = metrics.ascent()
+        advance = self._advance
+        line_height = self._line_height
+        ascent = self._ascent
         background = QColor(TOKENS["term_bg"])
         painter.fillRect(self.rect(), background)
 
@@ -634,9 +666,8 @@ class TerminalView(QWidget):
         self.update()
 
     def _cell_at(self, position: QPoint) -> tuple[int, int]:
-        metrics = QFontMetricsF(self._font)
-        advance = max(1.0, metrics.horizontalAdvance("M"))
-        line_height = max(1.0, metrics.height())
+        advance = self._advance
+        line_height = self._line_height
         column = max(0, int((position.x() - self.PADDING) // advance))
         line = max(0, int((position.y() - self.PADDING) // line_height))
         column = min(column, (self._last_columns or 80) - 1)
@@ -734,25 +765,26 @@ class TerminalView(QWidget):
         self._selecting = False
 
 
+_KEY_NAMES = {
+    Qt.Key.Key_Return: "enter",
+    Qt.Key.Key_Enter: "enter",
+    Qt.Key.Key_Backspace: "backspace",
+    Qt.Key.Key_Tab: "tab",
+    Qt.Key.Key_Escape: "escape",
+    Qt.Key.Key_Up: "up",
+    Qt.Key.Key_Down: "down",
+    Qt.Key.Key_Left: "left",
+    Qt.Key.Key_Right: "right",
+    Qt.Key.Key_Home: "home",
+    Qt.Key.Key_End: "end",
+    Qt.Key.Key_Insert: "insert",
+    Qt.Key.Key_Delete: "delete",
+    Qt.Key.Key_PageUp: "pageup",
+    Qt.Key.Key_PageDown: "pagedown",
+    Qt.Key.Key_Space: "space",
+}
+_KEY_NAMES.update({getattr(Qt.Key, f"Key_F{index}"): f"f{index}" for index in range(1, 13)})
+
+
 def _key_name(key: int) -> str:
-    names = {
-        Qt.Key.Key_Return: "enter",
-        Qt.Key.Key_Enter: "enter",
-        Qt.Key.Key_Backspace: "backspace",
-        Qt.Key.Key_Tab: "tab",
-        Qt.Key.Key_Escape: "escape",
-        Qt.Key.Key_Up: "up",
-        Qt.Key.Key_Down: "down",
-        Qt.Key.Key_Left: "left",
-        Qt.Key.Key_Right: "right",
-        Qt.Key.Key_Home: "home",
-        Qt.Key.Key_End: "end",
-        Qt.Key.Key_Insert: "insert",
-        Qt.Key.Key_Delete: "delete",
-        Qt.Key.Key_PageUp: "pageup",
-        Qt.Key.Key_PageDown: "pagedown",
-        Qt.Key.Key_Space: "space",
-    }
-    for index in range(1, 13):
-        names[getattr(Qt.Key, f"Key_F{index}")] = f"f{index}"
-    return names.get(key, "")
+    return _KEY_NAMES.get(key, "")

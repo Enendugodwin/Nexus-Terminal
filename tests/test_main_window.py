@@ -97,3 +97,11 @@ def test_theme_selection_applies_live_and_persists(app, services):
 
     apply_theme(app, "matrix")
     window.close()
+
+
+def test_closing_the_window_tears_services_down_once(app, services):
+    window = _window(services)
+    window.close()
+
+    assert services._closed is True
+    services.close()  # a second close (main() does this too) must be a no-op

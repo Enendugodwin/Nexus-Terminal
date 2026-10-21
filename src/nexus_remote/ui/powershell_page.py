@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -53,18 +54,22 @@ class PowerShellPage(QWidget):
         self.services = services
         self._channel: PtyChannel | None = None
         self._starting = False
-        self._start_cancelled = False
+        #: Incremented for every start attempt. A late worker result from an
+        #: attempt the operator already cancelled must not hijack a newer one.
+        self._start_attempt = 0
         self._pending_option: object | None = None
         self._pending_cwd: Path = Path.home()
+        self._running_option: object | None = None
 
         self.shell_combo = QComboBox()
         self._shells = available_shells()
+        self._default_shell = default_shell()
         for option in self._shells:
             self.shell_combo.addItem(option.label, option.key)
         preferred = self.services.database.get_setting("local_shell.shell", "") or ""
         index = self.shell_combo.findData(preferred)
         if index < 0 and self._shells:
-            preferred_default = default_shell()
+            preferred_default = self._default_shell
             if preferred_default is not None:
                 index = self.shell_combo.findData(preferred_default.key)
         self.shell_combo.setCurrentIndex(max(0, index))
@@ -157,7 +162,7 @@ class PowerShellPage(QWidget):
         for option in self._shells:
             if option.key == key:
                 return option
-        return default_shell()
+        return self._default_shell
 
     def _browse(self) -> None:
         selected = QFileDialog.getExistingDirectory(
@@ -191,7 +196,8 @@ class PowerShellPage(QWidget):
         # start reports the failure immediately instead of freezing the window
         # until the pseudo-terminal gives up.
         self._starting = True
-        self._start_cancelled = False
+        self._start_attempt += 1
+        attempt = self._start_attempt
         self._pending_option = option
         self._pending_cwd = cwd
         self.start_button.setEnabled(False)
@@ -203,15 +209,23 @@ class PowerShellPage(QWidget):
             rows=rows,
             columns=columns,
             label=option.label,
-            on_result=self._shell_started,
-            on_error=self._shell_failed,
+            on_result=lambda channel, attempt=attempt: self._shell_started(channel, attempt),
+            on_error=lambda message, detail="", attempt=attempt: self._shell_failed(
+                message, detail, attempt
+            ),
         )
 
-    def _shell_started(self, channel: object) -> None:
+    def _shell_started(self, channel: object, attempt: int) -> None:
+        if attempt != self._start_attempt:
+            # This console belongs to a start the operator already cancelled or
+            # replaced; close it instead of attaching it to the current page.
+            close = getattr(channel, "close", None)
+            if callable(close):
+                with contextlib.suppress(Exception):
+                    close()
+            return
         self._starting = False
-        if self._start_cancelled or not isinstance(channel, PtyChannel):
-            if isinstance(channel, PtyChannel):
-                channel.close()
+        if not isinstance(channel, PtyChannel):
             self._set_stopped("PowerShell stopped.")
             return
         option = self._pending_option
@@ -219,6 +233,7 @@ class PowerShellPage(QWidget):
         columns, rows = self.terminal_view.term_size()
         label = option.label if option else "PowerShell"
         self._channel = channel
+        self._running_option = option
         self.terminal_view.attach(
             channel,
             session_id=f"local-{option.key if option else 'powershell'}",
@@ -240,8 +255,10 @@ class PowerShellPage(QWidget):
             detail={"shell": label, "cwd": str(cwd)},
         )
 
-    def _shell_failed(self, message: str, detail: str = "") -> None:
+    def _shell_failed(self, message: str, detail: str = "", attempt: int | None = None) -> None:
         """Report a failed start at once; the backend is bounded, so this is quick."""
+        if attempt is not None and attempt != self._start_attempt:
+            return
         self._starting = False
         self.shell_combo.setEnabled(bool(self._shells))
         self.start_button.setEnabled(bool(self._shells))
@@ -253,7 +270,7 @@ class PowerShellPage(QWidget):
         if self._starting:
             # The console is still being created; cancel it and let the
             # background start close the process when it arrives.
-            self._start_cancelled = True
+            self._start_attempt += 1
             self._starting = False
             self._set_stopped("PowerShell stopped.")
             self.status_message.emit("Local PowerShell stopped.")
@@ -308,7 +325,7 @@ class PowerShellPage(QWidget):
 
         if not self.terminal_view.is_attached():
             return ""
-        option = self._pending_option or self.selected_shell()
+        option = self._running_option or self.selected_shell()
         label = option.label if option else "PowerShell"
         return terminal_snapshot(
             shell=f"{label} (local console on this computer)",
@@ -347,6 +364,7 @@ class PowerShellPage(QWidget):
         self.status_message.emit("Local PowerShell exited.")
 
     def _set_stopped(self, message: str) -> None:
+        self._running_option = None
         self.shell_combo.setEnabled(bool(self._shells))
         self.start_button.setEnabled(bool(self._shells))
         self.stop_button.setEnabled(False)
@@ -360,6 +378,10 @@ class PowerShellPage(QWidget):
     def shutdown(self) -> None:
         """Called when the main window closes; never leaves a child shell behind."""
 
-        if self.terminal_view.is_attached() or self._channel is not None:
-            self.terminal_view.detach()
-            self._channel = None
+        self._start_attempt += 1  # drop a start that is still in flight
+        self._starting = False
+        self.terminal_view.detach()
+        if self._channel is not None:
+            self._channel.close()
+        self._channel = None
+        self._running_option = None

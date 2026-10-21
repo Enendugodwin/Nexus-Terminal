@@ -157,8 +157,20 @@ The suite covers storage/migrations, device models and repository, credential
 references, host keys, redaction, policy, routing, sessions, transfers,
 diagnostics, autocomplete/history/snippets, error rules, the terminal buffer,
 the terminal widget (offscreen Qt), the local PowerShell pseudo-terminal
-channel (including Ctrl+C), AI provider request shaping and settings, theme
-switching and the update feed.
+channel (including Ctrl+C and capped reads), AI provider request shaping and
+settings, theme switching and the update feed.
+
+## Lint
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m ruff check src tests
+```
+
+The rule set is pinned in `pyproject.toml` (real errors, import order, modern
+syntax, bug-prone patterns, simplifications and a few hot-path checks). The
+UI's Qt overrides keep `# noqa: N802`; deliberately broad excepts in protocol
+and teardown code are ignored at the config level rather than at each site.
 
 ## Project layout
 

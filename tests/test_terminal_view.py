@@ -185,3 +185,25 @@ def test_a_multiline_block_is_inserted_as_one_paste_when_supported(app):
     assert payload.endswith(b"\x1b[201~")
     assert b"cd /srv\nls -la" in payload
     assert b"\r" not in payload
+
+
+class FailingChannel(FakeChannel):
+    """A channel whose socket dies between polls."""
+
+    def read(self, timeout: float = 0.2, max_bytes: int = 65536) -> bytes:
+        raise OSError("An existing connection was forcibly closed by the remote host")
+
+
+def test_a_read_error_closes_the_terminal_instead_of_raising(app):
+    view = TerminalView()
+    channel = FailingChannel()
+    seen: list[str] = []
+    view.closed.connect(seen.append)
+    view.attach(channel, session_id="s-broken")
+
+    view._drain()  # must not propagate out of the QTimer slot
+
+    assert seen == ["s-broken"]
+    assert not view.is_attached()
+    assert "read failed" in view.buffer.text()
+    view.deleteLater()

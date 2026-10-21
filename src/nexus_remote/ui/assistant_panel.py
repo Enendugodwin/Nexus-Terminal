@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from nexus_remote.assistant.autocomplete import SuggestionSource
 from nexus_remote.assistant.command_history import CommandStatus
-from nexus_remote.assistant.context import summarise
+from nexus_remote.assistant.context import last_lines, summarise
 from nexus_remote.assistant.model_adapters import (
     ModelResponse,
     build_prompt,
@@ -39,6 +39,11 @@ from nexus_remote.assistant.model_adapters import (
 from nexus_remote.services import AppServices
 from nexus_remote.ui.command_input import SuggestionLineEdit
 from nexus_remote.ui.tasks import run_async
+
+#: How much console output the error tab keeps: enough for the failing command,
+#: its error and the surrounding prompt, without the whole scrollback.
+MAX_DIAGNOSIS_LINES = 80
+MAX_DIAGNOSIS_CHARS = 6000
 
 
 class AssistantPanel(QWidget):
@@ -462,10 +467,14 @@ class AssistantPanel(QWidget):
         """Show ``text`` in the error tab and diagnose it immediately.
 
         The rules are deterministic and offline, so the answer is ready as
-        soon as the text arrives - there is nothing to wait for.
+        soon as the text arrives - there is nothing to wait for. The input is
+        bounded: a full scrollback would fill the editor and slow every rule
+        down for no benefit.
         """
 
-        self.error_input.setPlainText(text or "")
+        self.error_input.setPlainText(
+            last_lines(text, limit=MAX_DIAGNOSIS_LINES, max_chars=MAX_DIAGNOSIS_CHARS)
+        )
         if hasattr(self, "error_page"):
             self.tabs.setCurrentWidget(self.error_page)
         self.diagnose()
@@ -479,6 +488,9 @@ class AssistantPanel(QWidget):
         self.ai_status = QLabel("")
         self.ai_status.setWordWrap(True)
         self._ai_last_response: ModelResponse | None = None
+        #: Identifies the newest question; a slower earlier answer must not
+        #: overwrite it when two requests overlap.
+        self._ai_request_id = 0
 
         self.ai_question = QPlainTextEdit()
         self.ai_question.setObjectName("Mono")
@@ -577,6 +589,8 @@ class AssistantPanel(QWidget):
             return
         context = self._collect_context()
         prompt = build_prompt(question, untrusted_output=context)
+        self._ai_request_id += 1
+        request_id = self._ai_request_id
         self._ai_last_response = None
         self.ai_response.clear()
         self.ai_copy_button.setEnabled(False)
@@ -587,8 +601,12 @@ class AssistantPanel(QWidget):
         run_async(
             registry.complete,
             prompt,
-            on_result=self._ai_answered,
-            on_error=self._ai_failed,
+            on_result=lambda response, request_id=request_id: self._ai_answered(
+                response, request_id
+            ),
+            on_error=lambda message, detail="", request_id=request_id: self._ai_failed(
+                message, detail, request_id
+            ),
         )
 
     def _collect_context(self) -> str:
@@ -651,7 +669,9 @@ class AssistantPanel(QWidget):
             return
         self.insert_text_requested.emit(text)
 
-    def _ai_answered(self, response: object) -> None:
+    def _ai_answered(self, response: object, request_id: int | None = None) -> None:
+        if request_id is not None and request_id != self._ai_request_id:
+            return  # a newer question is already in flight
         self.ai_ask_button.setEnabled(True)
         if not isinstance(response, ModelResponse):
             self._ai_failed("the provider returned an unexpected response", "")
@@ -688,7 +708,9 @@ class AssistantPanel(QWidget):
             },
         )
 
-    def _ai_failed(self, message: str, detail: str = "") -> None:
+    def _ai_failed(self, message: str, detail: str = "", request_id: int | None = None) -> None:
+        if request_id is not None and request_id != self._ai_request_id:
+            return  # a newer question is already in flight
         self.ai_ask_button.setEnabled(True)
         self.ai_response_header.setText("The provider did not answer.")
         self.ai_response.setPlainText(

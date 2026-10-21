@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
 
 from nexus_remote import config
@@ -55,10 +55,22 @@ class AppServices:
     routing: RoutingEngine
     sessions: SessionManager
     models: ModelRegistry
+    _closed: bool = field(default=False, init=False, repr=False)
 
     def close(self) -> None:
-        self.sessions.close_all()
-        self.database.close()
+        """Tear everything down once, and never leave the database open.
+
+        ``MainWindow.closeEvent`` and ``main()`` both call this; a session that
+        refuses to disconnect must not stop the database from closing.
+        """
+
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self.sessions.close_all()
+        finally:
+            self.database.close()
 
     # -- convenience --------------------------------------------------------
     @property

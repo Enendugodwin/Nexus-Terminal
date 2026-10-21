@@ -202,6 +202,10 @@ class PtyChannel:
         self.label = label
         self._queue: queue.Queue[tuple[str, bytes | str]] = queue.Queue()
         self._closed = threading.Event()
+        #: Bytes left over when a single read is capped by ``max_bytes``. They
+        #: must survive to the next call, or terminal output would be silently
+        #: truncated in the middle of an escape sequence.
+        self._backlog = b""
         self._reader = threading.Thread(target=self._read_loop, name="nexus-pty", daemon=True)
         self._reader.start()
 
@@ -266,10 +270,16 @@ class PtyChannel:
 
     # -- channel interface --------------------------------------------------
     def read(self, timeout: float = 0.0, max_bytes: int = 65536) -> bytes:
+        limit = max(0, int(max_bytes))
+        if limit == 0:
+            return b""
+        if self._backlog:
+            chunk, self._backlog = self._backlog[:limit], self._backlog[limit:]
+            return chunk
         deadline = time.monotonic() + max(0.0, float(timeout))
         chunks: list[bytes] = []
         total = 0
-        while total < max_bytes:
+        while total < limit:
             wait = max(0.0, deadline - time.monotonic())
             try:
                 if wait:
@@ -278,20 +288,25 @@ class PtyChannel:
                     kind, payload = self._queue.get_nowait()
             except queue.Empty:
                 break
-            if kind == "data":
-                data = payload if isinstance(payload, bytes) else str(payload).encode("utf-8", "replace")
-                chunks.append(data)
-                total += len(data)
-                # Keep draining immediately available output without waiting.
-                deadline = time.monotonic()
-                continue
             if kind == "eof":
                 self._closed.set()
                 break
             if kind == "error":
                 self._closed.set()
                 break
-        return b"".join(chunks)[:max_bytes]
+            data = payload if isinstance(payload, bytes) else str(payload).encode("utf-8", "replace")
+            room = limit - total
+            if len(data) > room:
+                # Keep the remainder for the next read instead of dropping it.
+                chunks.append(data[:room])
+                self._backlog = data[room:]
+                total = limit
+                break
+            chunks.append(data)
+            total += len(data)
+            # Keep draining immediately available output without waiting.
+            deadline = time.monotonic()
+        return b"".join(chunks)
 
     def write(self, data: bytes | str) -> None:
         if self._closed.is_set():
@@ -314,7 +329,7 @@ class PtyChannel:
 
     @property
     def closed(self) -> bool:
-        return self._closed.is_set() and self._queue.empty()
+        return self._closed.is_set() and not self._backlog and self._queue.empty()
 
     def close(self) -> None:
         self._closed.set()

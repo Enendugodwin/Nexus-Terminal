@@ -1,4 +1,4 @@
-﻿"""Assistant AI tab and Settings provider selection."""
+"""Assistant AI tab and Settings provider selection."""
 
 from __future__ import annotations
 
@@ -208,3 +208,35 @@ def test_a_cut_off_answer_says_so(app, services):
     )
     assert "cut off" in panel.ai_response_header.text()
     assert "partial answer" in panel.ai_response.toPlainText()
+
+
+def test_a_stale_answer_cannot_overwrite_a_newer_question(app, services):
+    """Two overlapping questions must not interleave their answers."""
+
+    panel = AssistantPanel(services, compact=True)
+    panel._ai_request_id = 8
+
+    panel._ai_answered(
+        ModelResponse(text="answer to the old question", provider="p", model="m"),
+        7,
+    )
+
+    assert panel.ai_response.toPlainText() == ""
+    assert panel._ai_last_response is None
+
+    panel._ai_answered(
+        ModelResponse(text="answer to the current question", provider="p", model="m"),
+        8,
+    )
+    assert panel.ai_response.toPlainText() == "answer to the current question"
+
+
+def test_diagnosing_a_full_scrollback_keeps_only_the_tail(app, services):
+    from nexus_remote.ui.assistant_panel import MAX_DIAGNOSIS_LINES
+
+    panel = AssistantPanel(services, compact=True)
+    panel.diagnose_text("\n".join(f"line {index}" for index in range(500)))
+
+    kept = panel.error_input.toPlainText().splitlines()
+    assert 0 < len(kept) <= MAX_DIAGNOSIS_LINES
+    assert kept[-1] == "line 499"

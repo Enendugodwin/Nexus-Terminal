@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
     def __init__(self, services: AppServices) -> None:
         super().__init__()
         self.services = services
+        self._closing = False
         self.setWindowTitle(f"{config.APP_NAME} {config.APP_VERSION}")
         self.setWindowIcon(application_icon())
         self.resize(1280, 820)
@@ -295,10 +296,20 @@ class MainWindow(QMainWindow):
             )
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if self._closing:
+            super().closeEvent(event)
+            return
+        self._closing = True
         active = self.services.sessions.count_active()
         if active:
             self._set_status(f"closing {active} session(s)…")
         self.powershell.shutdown()
+        # Queued work (an in-flight AI question, an update check) may still
+        # reference the database. Drop what has not started and give running
+        # callbacks a short, bounded window before the services go away.
+        pool = QThreadPool.globalInstance()
+        pool.clear()
+        pool.waitForDone(1500)
         self.services.close()
         super().closeEvent(event)
 

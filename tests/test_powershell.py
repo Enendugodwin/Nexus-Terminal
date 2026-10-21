@@ -1,9 +1,11 @@
-﻿"""The local PowerShell section and its pseudo-terminal channel."""
+"""The local PowerShell section and its pseudo-terminal channel."""
 
 from __future__ import annotations
 
 import os
+import queue
 import sys
+import threading
 import time
 import uuid
 
@@ -297,5 +299,64 @@ def test_the_assistant_gets_the_console_as_context(app, services):
     assert "Working directory: C:\\Windows" in context
     assert "Recent terminal output:" in context
     assert "Running Spooler" in context
+    page.shutdown()
+
+
+
+def test_pty_read_never_drops_bytes_past_the_cap():
+    """A capped read must keep the remainder for the next poll."""
+
+    channel = object.__new__(PtyChannel)
+    channel._queue = queue.Queue()
+    channel._closed = threading.Event()
+    channel._backlog = b""
+    channel._queue.put(("data", b"0123456789"))
+
+    assert channel.read(timeout=0.0, max_bytes=4) == b"0123"
+    assert channel.read(timeout=0.0, max_bytes=100) == b"456789"
+    assert channel.read(timeout=0.0, max_bytes=100) == b""
+
+
+def test_a_closed_channel_still_reports_buffered_bytes():
+    channel = object.__new__(PtyChannel)
+    channel._queue = queue.Queue()
+    channel._closed = threading.Event()
+    channel._backlog = b"tail"
+    channel._closed.set()
+
+    assert channel.closed is False, "buffered output must be readable first"
+    assert channel.read(timeout=0.0, max_bytes=100) == b"tail"
+    assert channel.closed is True
+
+
+def test_a_late_start_is_closed_instead_of_attaching(app, services):
+    """A cancelled spawn that finishes later must not hijack the page."""
+
+    page = PowerShellPage(services)
+    page._start_attempt = 7
+    late = FakeChannel()
+
+    page._shell_started(late, 6)
+
+    assert late._closed is True
+    assert page.terminal_view.is_attached() is False
+    assert page.start_button.isEnabled() is True
+    page.shutdown()
+
+
+def test_a_late_failure_from_a_cancelled_start_is_ignored(app, services, monkeypatch):
+    page = PowerShellPage(services)
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        "nexus_remote.ui.powershell_page.QMessageBox.warning",
+        lambda *_args, **_kwargs: warnings.append("shown"),
+    )
+    before = page.status.text()
+    page._start_attempt = 4
+
+    page._shell_failed("could not start PowerShell", "detail", 3)
+
+    assert warnings == []
+    assert page.status.text() == before
     page.shutdown()
 
