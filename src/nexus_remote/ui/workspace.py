@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from nexus_remote.assistant.autocomplete import SuggestionSource, environment_for_os
-from nexus_remote.assistant.context import terminal_snapshot
+from nexus_remote.assistant.context import TERMINAL_TAIL_ROWS, terminal_snapshot
 from nexus_remote.connections.interfaces import ConnectionErrorKind, ProtocolError, SessionState
 from nexus_remote.connections.session import Session
 from nexus_remote.diagnostics.sysinfo import SystemInfo, collect_system_info
@@ -576,7 +576,7 @@ class WorkspacePage(QWidget):
     def _diagnose_terminal_output(self) -> None:
         """Send the terminal output to the assistant and diagnose it at once."""
 
-        text = self.terminal_view.buffer.text()
+        text = self.terminal_view.buffer.tail_text(TERMINAL_TAIL_ROWS)
         if not text.strip():
             self.status_message.emit("There is no terminal output to diagnose yet.")
             return
@@ -603,7 +603,7 @@ class WorkspacePage(QWidget):
         return terminal_snapshot(
             shell=f"remote {session.protocol} session",
             details=details,
-            output=self.terminal_view.buffer.text(),
+            output=self.terminal_view.buffer.tail_text(TERMINAL_TAIL_ROWS),
         )
 
     def _insert_text_in_shell(self, text: str) -> None:

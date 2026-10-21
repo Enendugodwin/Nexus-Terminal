@@ -128,3 +128,30 @@ def test_pyte_version_supports_the_features_we_rely_on():
     # compatibility surface; guard against an accidental upgrade breaking them.
     assert hasattr(pyte, "HistoryScreen")
     assert hasattr(pyte, "ByteStream")
+
+
+def test_tail_text_only_reads_the_end_of_the_scrollback():
+    buffer = TerminalBuffer(20, 3, history=200)
+    for index in range(40):
+        buffer.feed(f"line{index}\r\n")
+
+    tail = buffer.tail_text(4).split("\n")
+
+    assert tail == buffer.text().split("\n")[-4:]
+    assert tail[0] == buffer.line_text(buffer.total_rows - 4)
+    assert tail[-2] == "line39"  # the most recent output, not the start
+    assert tail[-1] == ""
+
+
+def test_blank_cells_are_shared_between_rows():
+    buffer = TerminalBuffer(20, 3)
+    buffer.feed("ab")
+
+    first = buffer.row(0)
+    second = buffer.row(2)
+
+    assert all(cell.char == " " for cell in second)
+    # Sharing a frozen blank cell keeps repaints allocation-free on empty rows.
+    assert second[0] is second[19]
+    assert second[0] is first[2]
+    assert isinstance(first[0], Cell)

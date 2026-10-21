@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from nexus_remote.assistant.context import terminal_snapshot
+from nexus_remote.assistant.context import TERMINAL_TAIL_ROWS, terminal_snapshot
 from nexus_remote.host_shell import (
     PtyChannel,
     available_shells,
@@ -312,7 +312,7 @@ class PowerShellPage(QWidget):
     def diagnose_last_error(self) -> None:
         """Send the console output to the assistant and diagnose it straight away."""
 
-        text = self.terminal_view.buffer.text()
+        text = self.terminal_view.buffer.tail_text(TERMINAL_TAIL_ROWS)
         if not text.strip():
             self.status_message.emit("There is no console output to diagnose yet.")
             return
@@ -333,7 +333,7 @@ class PowerShellPage(QWidget):
                 ("Working directory", self.cwd_edit.text().strip()),
                 ("Operator account", os.environ.get("USERNAME", "")),
             ],
-            output=self.terminal_view.buffer.text(),
+            output=self.terminal_view.buffer.tail_text(TERMINAL_TAIL_ROWS),
         )
 
     def _insert_text_in_shell(self, text: str) -> None:

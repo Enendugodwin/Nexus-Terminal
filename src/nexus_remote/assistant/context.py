@@ -16,6 +16,11 @@ MAX_LINES = 20
 #: Hard cap on the output part of a snapshot, in characters.
 MAX_CHARS = 1500
 
+#: How many trailing rows a caller should read from the terminal buffer. The
+#: snapshot keeps 20 lines and the error tab 80, so this covers both without
+#: converting the whole scrollback on every question.
+TERMINAL_TAIL_ROWS = 200
+
 
 def last_lines(text: str, *, limit: int = MAX_LINES, max_chars: int = MAX_CHARS) -> str:
     """Return the last non-blank ``limit`` lines, capped at ``max_chars``."""

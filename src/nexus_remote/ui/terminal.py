@@ -173,6 +173,9 @@ class TerminalBuffer:
         self.lines = max(1, int(lines))
         self.screen = pyte.HistoryScreen(self.columns, self.lines, history=max(0, int(history)))
         self.stream = pyte.ByteStream(self.screen)
+        #: Blank cells are immutable, so every empty position can share one
+        #: instance instead of allocating a ``Cell`` per column per repaint.
+        self._blank_cell = Cell()
 
     # -- input --------------------------------------------------------------
     def feed(self, data: bytes | str) -> None:
@@ -224,7 +227,14 @@ class TerminalBuffer:
         history = self.screen.history.top
         offset = self.history_size
         raw_row = history[index] if index < offset else self.screen.buffer[index - offset]
-        return [_to_cell(raw_row.get(column)) for column in range(self.columns)]
+        blank = self._blank_cell
+        cells: list[Cell] = []
+        for column in range(self.columns):
+            raw = raw_row.get(column)
+            # Unset positions are blank by definition in pyte; reuse the shared
+            # blank cell rather than building one per column.
+            cells.append(blank if raw is None else _to_cell(raw))
+        return cells
 
     def rows(self, start: int, count: int) -> list[list[Cell]]:
         start = max(0, min(start, self.total_rows))
@@ -236,6 +246,17 @@ class TerminalBuffer:
 
     def text(self) -> str:
         return "\n".join(self.line_text(index) for index in range(self.total_rows))
+
+    def tail_text(self, lines: int = 200) -> str:
+        """The last ``lines`` rows as text.
+
+        Callers only ever use the tail (an AI context snapshot, the error
+        diagnosis), so converting a 2000-line scrollback first is wasted work.
+        """
+
+        count = max(1, int(lines))
+        start = max(0, self.total_rows - count)
+        return "\n".join(self.line_text(index) for index in range(start, self.total_rows))
 
     def selection_text(self, anchor: tuple[int, int], cursor: tuple[int, int]) -> str:
         """Return the text between two (row, column) positions, inclusive."""
