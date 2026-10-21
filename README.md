@@ -107,11 +107,17 @@ diagnose or run a playbook.
 
 ## Install and run
 
+Three routes, same data directory — see **[INSTALL.md](INSTALL.md)** for the full
+guide, silent deployment and troubleshooting.
+
 ### Packaged Windows app
 
 Run `NexusRemoteSetup-0.3.0.exe` from `dist\` (or the copy published by your
 team). It installs per user, needs no administrator rights and leaves existing
 data in place during upgrades. Start **Nexus Remote** from the Start Menu.
+
+No installer? `NexusRemote-0.3.0-portable.zip` unpacks to a self-contained
+folder — no admin rights, no registry entries, delete it to remove it.
 
 Silent deployment for IT:
 
