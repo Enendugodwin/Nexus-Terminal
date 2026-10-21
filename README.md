@@ -1,5 +1,13 @@
 # Nexus Remote
 
+![Nexus Remote workspace: an SSH session to a Kali host next to the assistant panel, with live system information for the session](docs/images/workspace-terminal-and-assistant.png)
+
+*Workspace: a real SSH terminal, session system information and the assistant in one window.*
+
+![Nexus Remote workspace: the assistant answering from the open terminal's context](docs/images/workspace-assistant-terminal-context.png)
+
+*The assistant sees the open session, so "view version" is answered from the terminal it is sitting beside.*
+
 A Windows desktop workspace for remote access and device management: SSH/SFTP
 sessions, serial console connections, a real interactive terminal, an embedded
 FreeRDP desktop, device inventory, diagnostics and a deterministic assistant.
