@@ -1,4 +1,4 @@
-"""Optional AI provider adapters.
+﻿"""Optional AI provider adapters.
 
 The assistant depends on the :class:`AssistantModel` interface, never on a
 specific vendor. No provider is enabled by default, and model output is always
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
@@ -23,6 +24,10 @@ from nexus_remote.config import APP_NAME, APP_VERSION
 #: browser signature banned"). The app identifies itself honestly instead.
 USER_AGENT = f"{APP_NAME.replace(' ', '-')}/{APP_VERSION}"
 
+#: Only retry a reasoning-only reply with a bigger budget when the first call
+#: came back this quickly; otherwise the retry would double a long wait.
+REASONING_RETRY_AFTER_SECONDS = 45.0
+
 
 class ModelUnavailable(RuntimeError):
     """Raised when a provider is not configured or not reachable."""
@@ -34,6 +39,7 @@ class ModelResponse:
     provider: str
     model: str
     unverified: bool = True
+    truncated: bool = False
 
     def as_suggestion(self) -> str:
         return self.text.strip()
@@ -213,6 +219,39 @@ def _openai_text(body: dict[str, Any]) -> str:
     return ""
 
 
+def _openai_finish(body: dict[str, Any]) -> str:
+    choices = body.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        return str(choices[0].get("finish_reason") or "")
+    return ""
+
+
+def _gemini_text(body: dict[str, Any]) -> str:
+    pieces: list[str] = []
+    candidates = body.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        content = candidates[0].get("content") if isinstance(candidates[0], dict) else {}
+        parts = content.get("parts") if isinstance(content, dict) else []
+        if isinstance(parts, list):
+            for part in parts:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    pieces.append(part["text"])
+    return "\n".join(pieces)
+
+
+def _gemini_finish(body: dict[str, Any]) -> str:
+    candidates = body.get("candidates")
+    if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
+        return str(candidates[0].get("finishReason") or "")
+    return ""
+
+
+def _reasoning_only(body: dict[str, Any]) -> bool:
+    """True when the model reasoned but produced no answer text."""
+
+    return bool(_openai_finish(body) == "length" and not _openai_text(body).strip())
+
+
 class OpenAICompatibleModel(AssistantModel):
     """OpenAI Chat Completions, including OpenChat/OpenRouter/LM Studio/vLLM."""
 
@@ -226,7 +265,7 @@ class OpenAICompatibleModel(AssistantModel):
         *,
         timeout: float = 60.0,
         provider_name: str | None = None,
-        max_tokens: int = 900,
+        max_tokens: int = 4000,
         token_field: str = "max_tokens",
         session_header: str = "",
         session_id: str = "",
@@ -283,21 +322,45 @@ class OpenAICompatibleModel(AssistantModel):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
+        started = time.monotonic()
+        text, finish = self._send(messages, self.max_tokens)
+        elapsed = time.monotonic() - started
+        if not text.strip() and finish == "length" and elapsed < REASONING_RETRY_AFTER_SECONDS:
+            # Reasoning models draw their thinking from the same budget: a
+            # hard question can consume every token before the answer starts,
+            # which used to look like "the provider returned an empty answer".
+            # Skip the retry when the first call was already slow, so a very
+            # verbose model cannot double an already long wait.
+            budget = min(max(self.max_tokens * 2, 4000), 16000)
+            if budget > self.max_tokens:
+                text, finish = self._send(messages, budget)
+        if not text.strip() and finish == "length":
+            raise ModelUnavailable(
+                f"{self.name} ({self.model}) spent the whole {self.max_tokens}-token budget on "
+                "reasoning and returned no answer. Ask a narrower question, or choose a model that "
+                "answers directly (deepseek-v4.1-flash and kimi-k3 answer long questions reliably)."
+            )
+        return ModelResponse(
+            text=text,
+            provider=self.name,
+            model=self.model,
+            truncated=finish == "length",
+        )
+
+    def _send(self, messages: list[dict[str, str]], max_tokens: int) -> tuple[str, str]:
         body = _request_json(
             self.endpoint,
             provider=self.name,
             payload={
                 "model": self.model,
                 "messages": messages,
-                self.token_field: self.max_tokens,
+                self.token_field: max_tokens,
                 "stream": False,
             },
             headers=self._headers(),
             timeout=self.timeout,
         )
-        return ModelResponse(
-            text=_openai_text(body), provider=self.name, model=self.model
-        )
+        return _openai_text(body), _openai_finish(body)
 
 
 class AnthropicModel(AssistantModel):
@@ -314,7 +377,7 @@ class AnthropicModel(AssistantModel):
         *,
         timeout: float = 60.0,
         provider_name: str | None = None,
-        max_tokens: int = 900,
+        max_tokens: int = 4000,
     ) -> None:
         self.model = model
         self.endpoint = endpoint
@@ -387,7 +450,7 @@ class GeminiModel(AssistantModel):
         *,
         timeout: float = 60.0,
         provider_name: str | None = None,
-        max_tokens: int = 900,
+        max_tokens: int = 4000,
     ) -> None:
         self.model = model
         self.endpoint = endpoint.replace("{model}", model)
@@ -432,17 +495,33 @@ class GeminiModel(AssistantModel):
             headers=self._headers(),
             timeout=self.timeout,
         )
-        pieces: list[str] = []
-        candidates = body.get("candidates")
-        if isinstance(candidates, list) and candidates:
-            content = candidates[0].get("content") if isinstance(candidates[0], dict) else {}
-            parts = content.get("parts") if isinstance(content, dict) else []
-            if isinstance(parts, list):
-                for part in parts:
-                    if isinstance(part, dict) and isinstance(part.get("text"), str):
-                        pieces.append(part["text"])
+        text = _gemini_text(body)
+        finish = _gemini_finish(body)
+        if not text.strip() and finish == "MAX_TOKENS":
+            # Thinking models count their reasoning against maxOutputTokens,
+            # exactly like the OpenAI-compatible reasoning models.
+            budget = min(max(self.max_tokens * 2, 4000), 8000)
+            if budget > self.max_tokens:
+                payload["generationConfig"]["maxOutputTokens"] = budget
+                body = _request_json(
+                    self.endpoint,
+                    provider=self.name,
+                    payload=payload,
+                    headers=self._headers(),
+                    timeout=self.timeout,
+                )
+                text = _gemini_text(body)
+                finish = _gemini_finish(body)
+        if not text.strip() and finish == "MAX_TOKENS":
+            raise ModelUnavailable(
+                f"{self.name} used the whole token budget on reasoning and returned no answer; "
+                "try a narrower question"
+            )
         return ModelResponse(
-            text="\n".join(pieces), provider=self.name, model=self.model
+            text=text,
+            provider=self.name,
+            model=self.model,
+            truncated=finish == "MAX_TOKENS",
         )
 
 
@@ -563,3 +642,4 @@ def suggestion_from_response(response: ModelResponse, *, validator: Callable[[st
         if len(candidate) <= 200:
             return candidate
     return None
+

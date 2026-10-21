@@ -199,3 +199,12 @@ def test_the_prompt_carries_the_open_terminal_context(app, services, monkeypatch
     assert "Working directory: /srv" not in captured[-1]
     assert "Terminal context is off" in panel.ai_context_note.text()
 
+
+
+def test_a_cut_off_answer_says_so(app, services):
+    panel = AssistantPanel(services, compact=True)
+    panel._ai_answered(
+        ModelResponse(text="partial answer", provider="p", model="m", truncated=True)
+    )
+    assert "cut off" in panel.ai_response_header.text()
+    assert "partial answer" in panel.ai_response.toPlainText()

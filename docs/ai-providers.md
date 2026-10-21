@@ -62,7 +62,7 @@ default `Python-urllib` agent is rejected by some bot-protection layers with
 - A request that carries an API key is refused over plain HTTP unless the
   endpoint is loopback. This prevents a key being sent in clear text across a
   LAN or the internet.
-- Responses are capped at 2 MB and requests time out (60 seconds by default;
+- Responses are capped at 2 MB and requests time out (150 seconds by default;
   provider tests use at most 15 seconds).
 
 ## In the assistant
@@ -112,6 +112,9 @@ command, read credentials or call tools.
 | HTTP 401 / 403 | Read the reason the app shows. A key can be valid but the plan can forbid third-party clients: OpenCode's free models, for example, only answer requests made from inside the OpenCode app and reject every other client with `FreeTierError`. |
 | HTTP 402 "Insufficient account funds" with an OpenCode key | You are on the OpenCode **Console** path with an empty pay-as-you-go balance. If you pay for **Go**, switch to the **OpenCode Go** preset (the `/inference/go/...` endpoint); the two balances are separate. |
 | HTTP 429 "Endpoint is unavailable" | The gateway was briefly busy; retry. Persistent 429 means the Go allowance or rate limit is exhausted. |
+| "spent the whole N-token budget on reasoning" | The model thought until the token limit and never wrote an answer. Ask a narrower question or pick a model that answers directly (`deepseek-v4.1-flash`, `kimi-k3`). The app already starts at 8000 tokens for Go. |
+| "the answer was cut off" | The reply reached the token limit. Ask for a shorter or narrower answer; the visible part is still usable. |
+| A slow/verbose model times out | Reasoning-heavy models can take minutes on broad questions. Use `deepseek-v4.1-flash` for routine help. |
 | HTTP 404 | The endpoint path or model name is wrong. `GET https://opencode.ai/inference/go/v1/models` lists the model ids a Go key may use. |
 | "refusing to send an API key over plain HTTP" | Use HTTPS or a loopback endpoint. |
 | Ollama "not reachable" | Is Ollama running, and is the host/port correct? |

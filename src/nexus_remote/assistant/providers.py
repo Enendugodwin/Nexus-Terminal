@@ -1,4 +1,4 @@
-"""Provider catalogue and settings helpers for optional AI.
+﻿"""Provider catalogue and settings helpers for optional AI.
 
 The application never enables a hosted model implicitly. A provider is used
 only after the operator selects it in **Settings > Optional AI** and (for hosted
@@ -41,6 +41,9 @@ class ProviderPreset:
     requires_key: bool
     note: str = ""
     api_style: str = "openai"
+    #: Completion budget per request. Reasoning models spend part of it on
+    #: their thinking, so a small budget can leave no room for an answer.
+    max_tokens: int = 4000
 
 
 PROVIDERS: tuple[ProviderPreset, ...] = (
@@ -69,6 +72,7 @@ PROVIDERS: tuple[ProviderPreset, ...] = (
         model="gpt-4o-mini",
         requires_key=True,
         note="Uses the OpenAI Chat Completions API. The key is stored in the OS vault.",
+        max_tokens=8000,
     ),
     ProviderPreset(
         key="anthropic",
@@ -98,6 +102,7 @@ PROVIDERS: tuple[ProviderPreset, ...] = (
             "Uses the OpenCode Go / Go Plus subscription allowance. The pay-as-you-go "
             "Console models use a different path (/inference/openai/v1) and a separate balance."
         ),
+        max_tokens=8000,
     ),
     ProviderPreset(
         key="openai_compatible",
@@ -122,7 +127,7 @@ class AIConfig:
     provider: str = "disabled"
     endpoint: str = ""
     model: str = ""
-    timeout: float = 60.0
+    timeout: float = 150.0
 
     @property
     def preset(self) -> ProviderPreset:
@@ -160,9 +165,9 @@ def load_ai_config(database: "Database") -> AIConfig:
     endpoint = setting("ai.endpoint") or setting("ai.host") or preset.endpoint
     model = setting("ai.model") or preset.model
     try:
-        timeout = float(setting("ai.timeout", "60") or "60")
+        timeout = float(setting("ai.timeout", "150") or "150")
     except ValueError:
-        timeout = 60.0
+        timeout = 150.0
     return AIConfig(
         provider=preset.key,
         endpoint=endpoint,
@@ -252,9 +257,11 @@ def build_model(
         api_key=api_key,
         timeout=config.timeout,
         provider_name=provider_name or preset.key,
+        max_tokens=preset.max_tokens,
         token_field=(
             "max_completion_tokens" if preset.key == "openai" else "max_tokens"
         ),
         session_header="x-opencode-session" if opencode_gateway else "",
         session_id=uuid.uuid4().hex if opencode_gateway else "",
     )
+

@@ -1,4 +1,4 @@
-"""Optional AI providers: validation, request shaping and vault-backed keys."""
+﻿"""Optional AI providers: validation, request shaping and vault-backed keys."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def test_openai_compatible_request_and_response(monkeypatch):
         {"role": "system", "content": "Be cautious."},
         {"role": "user", "content": "What should I check?"},
     ]
-    assert captured["payload"]["max_tokens"] == 900
+    assert captured["payload"]["max_tokens"] == 4000
     assert captured["payload"]["stream"] is False
 
 
@@ -244,7 +244,7 @@ def test_the_provider_test_uses_the_completion_route(monkeypatch):
     assert model.probe() is True
     assert calls == [("https://example.test/v1/chat/completions", "POST")]
     # The real request budget is restored after the minimal test request.
-    assert model.max_tokens == 900
+    assert model.max_tokens == 4000
 
 
 def test_the_anthropic_provider_test_reports_a_refusal(monkeypatch):
@@ -257,7 +257,7 @@ def test_the_anthropic_provider_test_reports_a_refusal(monkeypatch):
     with pytest.raises(model_adapters.ModelUnavailable) as excinfo:
         model.probe()
     assert "invalid x-api-key" in str(excinfo.value)
-    assert model.max_tokens == 900
+    assert model.max_tokens == 4000
 
 
 def test_a_disabled_model_refuses_to_be_tested():
@@ -344,3 +344,91 @@ def test_other_providers_do_not_send_the_opencode_session_header():
     )
     assert model.session_header == ""
     assert "x-opencode-session" not in model._headers()
+
+
+def test_a_reasoning_only_reply_is_retried_with_a_bigger_budget(monkeypatch):
+    """Reasoning tokens share the completion budget and can starve the answer."""
+
+    budgets = []
+
+    def fake_request(url, **kwargs):
+        budgets.append(kwargs["payload"]["max_tokens"])
+        if len(budgets) == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {"content": None, "reasoning_content": "thinking..."},
+                        "finish_reason": "length",
+                    }
+                ]
+            }
+        return {"choices": [{"message": {"content": "the answer"}, "finish_reason": "stop"}]}
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+    model = OpenAICompatibleModel("m", "https://example.test/v1/chat/completions", "k")
+
+    response = model.complete("a hard question")
+
+    assert response.text == "the answer"
+    assert response.truncated is False
+    assert budgets == [4000, 8000]
+
+
+def test_an_empty_reply_after_the_retry_explains_the_reasoning_budget(monkeypatch):
+    def fake_request(url, **kwargs):
+        return {
+            "choices": [
+                {
+                    "message": {"content": None, "reasoning_content": "still thinking..."},
+                    "finish_reason": "length",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+    model = OpenAICompatibleModel("m", "https://example.test/v1/chat/completions", "k")
+
+    with pytest.raises(model_adapters.ModelUnavailable) as excinfo:
+        model.complete("a very hard question")
+    assert "reasoning" in str(excinfo.value)
+
+
+def test_a_cut_off_answer_is_flagged(monkeypatch):
+    def fake_request(url, **kwargs):
+        return {"choices": [{"message": {"content": "partial answer"}, "finish_reason": "length"}]}
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+    model = OpenAICompatibleModel("m", "https://example.test/v1/chat/completions", "k")
+
+    response = model.complete("long question")
+    assert response.text == "partial answer"
+    assert response.truncated is True
+
+
+def test_the_retry_is_skipped_when_the_first_call_was_slow(monkeypatch):
+    calls = []
+
+    def fake_request(url, **kwargs):
+        calls.append(kwargs["payload"]["max_tokens"])
+        return {"choices": [{"message": {"content": None}, "finish_reason": "length"}]}
+
+    monkeypatch.setattr(model_adapters, "_request_json", fake_request)
+    monkeypatch.setattr(model_adapters, "REASONING_RETRY_AFTER_SECONDS", -1.0)
+    model = OpenAICompatibleModel("m", "https://example.test/v1/chat/completions", "k")
+
+    with pytest.raises(model_adapters.ModelUnavailable):
+        model.complete("slow question")
+    assert calls == [4000], "a slow first call must not be retried"
+
+
+
+def test_the_go_preset_leaves_room_for_reasoning_tokens():
+    """Reasoning models spend their thinking from the same completion budget."""
+
+    preset = preset_for("opencode_go")
+    assert preset.max_tokens >= 8000
+    model = build_model(
+        AIConfig("opencode_go", preset.endpoint, "deepseek-v4.1-flash"), api_key="k"
+    )
+    assert model.max_tokens == preset.max_tokens
+
