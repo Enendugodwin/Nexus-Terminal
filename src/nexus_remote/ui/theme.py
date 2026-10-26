@@ -339,6 +339,20 @@ def stylesheet() -> str:
         border-color: {t['danger']};
         color: {t['danger']};
     }}
+    /* An id selector outranks the plain ``QPushButton:disabled`` rule, so the
+       primary and danger buttons need their own disabled state. Without these
+       a disabled Start/Stop (or Delete) still looked bright and clickable. */
+    QPushButton#Primary:disabled,
+    QPushButton#Danger:disabled {{
+        background-color: {t['bg_alt']};
+        border-color: {t['border']};
+        color: {t['text_faint']};
+    }}
+    QPushButton#Primary:disabled:hover,
+    QPushButton#Danger:disabled:hover {{
+        background-color: {t['bg_alt']};
+        border-color: {t['border']};
+    }}
     QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget, QTableWidget, QTreeWidget {{
         background-color: {t['panel_alt']};
         border: 1px solid {t['border']};

@@ -424,9 +424,15 @@ class TerminalView(QWidget):
         """Stop reading, tell the operator why, and emit ``closed`` once."""
 
         self._timer.stop()
-        reason = f"[read failed: {exc}]" if exc is not None else "[connection closed]"
-        self.feed(f"\r\n{reason}\r\n")
         session_id, self.session_id = self.session_id, ""
+        if exc is not None:
+            reason = f"[read failed: {exc}]"
+        elif session_id.startswith("local-"):
+            # A local console ending is a normal exit, not a lost connection.
+            reason = "[shell exited]"
+        else:
+            reason = "[connection closed]"
+        self.feed(f"\r\n{reason}\r\n")
         self.channel = None
         self.closed.emit(session_id)
 
@@ -679,11 +685,16 @@ class TerminalView(QWidget):
         delta = event.angleDelta().y()
         if delta == 0:
             return
-        step = max(1, delta // 120) * 3
-        self._scroll = min(
-            max(0, self.buffer.total_rows - (self._last_rows or 24)),
-            max(0, self._scroll + step),
-        )
+        # A positive delta is a wheel-up gesture: move back through history
+        # (more lines above the bottom). A wheel-down gesture must move forward
+        # again, so the sign matters; taking ``max(1, ...)`` made both
+        # directions scroll up and left the view stuck in the scrollback.
+        steps = int(delta / 120)
+        if steps == 0:
+            steps = 1 if delta > 0 else -1
+        step = steps * 3
+        maximum = max(0, self.buffer.total_rows - (self._last_rows or 24))
+        self._scroll = min(maximum, max(0, self._scroll + step))
         self.update()
 
     def _cell_at(self, position: QPoint) -> tuple[int, int]:

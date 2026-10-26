@@ -182,7 +182,12 @@ class PowerShellPage(QWidget):
                 "Install Windows PowerShell or PowerShell 7, then reopen this page.",
             )
             return
-        cwd = Path(self.cwd_edit.text().strip() or str(Path.home())).expanduser()
+        raw = self.cwd_edit.text().strip()
+        # A path pasted from Explorer often keeps its quotes; accept both forms
+        # instead of silently falling back to the home directory.
+        if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {'"', "'"}:
+            raw = raw[1:-1].strip()
+        cwd = Path(raw or str(Path.home())).expanduser()
         if not cwd.is_dir():
             QMessageBox.information(
                 self,
@@ -264,6 +269,17 @@ class PowerShellPage(QWidget):
         self.start_button.setEnabled(bool(self._shells))
         text = str(message or "PowerShell did not start.")
         self.status.setText(f"PowerShell did not start: {text}")
+        # Failures are worth keeping next to the successful starts: without a
+        # record the operator has no way to tell a missing backend from a
+        # mistyped working directory after the dialog is dismissed.
+        self.services.audit.record(
+            "system",
+            "local_shell.failed",
+            severity="warning",
+            outcome="failure",
+            detail={"error": text, "detail": str(detail or "")},
+        )
+        self.status_message.emit(f"Local PowerShell did not start: {text}")
         QMessageBox.warning(self, "Could not start PowerShell", text)
 
     def stop_shell(self) -> None:

@@ -99,6 +99,16 @@ def test_theme_selection_applies_live_and_persists(app, services):
     window.close()
 
 
+def test_local_powershell_messages_reach_the_status_bar(app, services):
+    """The Local PowerShell page reports into the same status bar as the workspace."""
+
+    window = _window(services)
+    window.powershell.status_message.emit("Local PowerShell stopped.")
+
+    assert window.status_message.text() == "Local PowerShell stopped."
+    window.close()
+
+
 def test_closing_the_window_tears_services_down_once(app, services):
     window = _window(services)
     window.close()

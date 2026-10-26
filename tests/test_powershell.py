@@ -259,6 +259,58 @@ def test_a_failed_start_reports_the_error_without_freezing_the_window(app, servi
     page.shutdown()
 
 
+def test_a_failed_start_is_recorded_in_the_audit_log(app, services, monkeypatch):
+    """Successful starts and stops are audited; a failure must be too."""
+
+    page = PowerShellPage(services)
+
+    def boom(*_args, **_kwargs):
+        raise host_shell.HostShellUnavailable("could not start PowerShell: no agent")
+
+    monkeypatch.setattr(host_shell.PtyChannel, "spawn", staticmethod(boom))
+    monkeypatch.setattr(
+        "nexus_remote.ui.powershell_page.QMessageBox.warning",
+        lambda *_args, **_kwargs: None,
+    )
+    page.start_shell()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and page._starting:
+        app.processEvents()
+        time.sleep(0.02)
+    app.processEvents()
+
+    events = services.audit.events(limit=10)
+    failed = [event for event in events if event.action == "local_shell.failed"]
+    assert failed, "the failed start was not audited"
+    assert failed[0].outcome == "failure"
+    assert "no agent" in failed[0].detail.get("error", "")
+    page.shutdown()
+
+
+def test_a_quoted_working_directory_is_accepted(app, services, monkeypatch, tmp_path):
+    """A path pasted from Explorer keeps its quotes; it must still be used."""
+
+    page = PowerShellPage(services)
+    seen: dict[str, str] = {}
+
+    def spawn(_executable, *, cwd=None, **_kwargs):
+        seen["cwd"] = str(cwd)
+        return FakeChannel()
+
+    monkeypatch.setattr(host_shell.PtyChannel, "spawn", staticmethod(spawn))
+    page.cwd_edit.setText(f'"{tmp_path}"')
+
+    page.start_shell()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and page._starting:
+        app.processEvents()
+        time.sleep(0.02)
+    app.processEvents()
+
+    assert seen["cwd"] == str(tmp_path)
+    page.shutdown()
+
+
 def test_a_multiline_selection_is_inserted_as_one_safe_paste(app, services):
     page = PowerShellPage(services)
     channel = FakeChannel()
@@ -315,6 +367,42 @@ def test_pty_read_never_drops_bytes_past_the_cap():
     assert channel.read(timeout=0.0, max_bytes=4) == b"0123"
     assert channel.read(timeout=0.0, max_bytes=100) == b"456789"
     assert channel.read(timeout=0.0, max_bytes=100) == b""
+
+
+def test_a_pty_backend_error_is_reported_instead_of_silently_closing():
+    """The console must say why it died, not just show '[connection closed]'."""
+
+    channel = object.__new__(PtyChannel)
+    channel._queue = queue.Queue()
+    channel._closed = threading.Event()
+    channel._backlog = b""
+    channel._queue.put(("data", b"partial"))
+    channel._queue.put(("error", "the winpty agent stopped"))
+    channel._queue.put(("eof", b""))
+
+    assert channel.read(timeout=0.0, max_bytes=100) == b"partial"
+    with pytest.raises(OSError, match="winpty agent stopped"):
+        channel.read(timeout=0.0, max_bytes=100)
+    # A second poll is quiet rather than raising the same error forever.
+    assert channel.read(timeout=0.0, max_bytes=100) == b""
+
+
+def test_shell_discovery_never_blocks_the_gui_thread(monkeypatch):
+    """A PATH entry on a dead network drive must not freeze the page."""
+
+    def slow_which(*_args, **_kwargs):
+        time.sleep(0.5)
+        return None
+
+    monkeypatch.setattr(host_shell, "LOOKUP_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(host_shell.shutil, "which", slow_which)
+
+    started = time.monotonic()
+    options = available_shells()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.4, f"discovery blocked for {elapsed:.2f}s"
+    assert isinstance(options, list)
 
 
 def test_a_closed_channel_still_reports_buffered_bytes():

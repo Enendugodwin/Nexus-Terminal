@@ -50,7 +50,14 @@ class ShellOption:
 
 
 def available_shells() -> list[ShellOption]:
-    """Return the PowerShell editions installed on this computer."""
+    """Return the PowerShell editions installed on this computer.
+
+    ``shutil.which`` walks ``PATH`` and ``Path.is_file`` may block on a
+    disconnected mapped drive, so both lookups are bounded: this runs while the
+    PowerShell page is being built, on the GUI thread, and a stalled lookup must
+    not freeze the window. A lookup that does not answer in time is treated as
+    "not found" here - Windows PowerShell 5.1 is found by a fixed path.
+    """
 
     options: list[ShellOption] = []
     if sys.platform == "win32":
@@ -58,11 +65,17 @@ def available_shells() -> list[ShellOption]:
         windows_powershell = (
             system_root / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
         )
-        if windows_powershell.is_file():
+        present, _error, timed_out = _bounded_lookup(
+            windows_powershell.is_file, LOOKUP_TIMEOUT_SECONDS
+        )
+        if present and not timed_out:
             options.append(
                 ShellOption("powershell", "Windows PowerShell 5.1", str(windows_powershell))
             )
-    pwsh = shutil.which("pwsh")
+    pwsh, _error, timed_out = _bounded_lookup(
+        lambda: shutil.which("pwsh"), LOOKUP_TIMEOUT_SECONDS
+    )
+    pwsh = None if timed_out else pwsh
     if not pwsh and sys.platform == "win32":
         candidate = (
             Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
@@ -70,7 +83,8 @@ def available_shells() -> list[ShellOption]:
             / "7"
             / "pwsh.exe"
         )
-        if candidate.is_file():
+        present, _error, timed_out = _bounded_lookup(candidate.is_file, LOOKUP_TIMEOUT_SECONDS)
+        if present and not timed_out:
             pwsh = str(candidate)
     if pwsh:
         options.append(ShellOption("pwsh", "PowerShell 7+", pwsh))
@@ -206,6 +220,10 @@ class PtyChannel:
         #: must survive to the next call, or terminal output would be silently
         #: truncated in the middle of an escape sequence.
         self._backlog = b""
+        #: Set when the reader thread reports a backend failure. ``read`` raises
+        #: it once buffered output is delivered, so the console shows the real
+        #: reason instead of a bare "[connection closed]".
+        self._pending_error: str | None = None
         self._reader = threading.Thread(target=self._read_loop, name="nexus-pty", daemon=True)
         self._reader.start()
 
@@ -292,6 +310,8 @@ class PtyChannel:
                 self._closed.set()
                 break
             if kind == "error":
+                # Keep the reason; it is raised after any output already read.
+                self._pending_error = str(payload) or "the console backend failed"
                 self._closed.set()
                 break
             data = payload if isinstance(payload, bytes) else str(payload).encode("utf-8", "replace")
@@ -306,7 +326,13 @@ class PtyChannel:
             total += len(data)
             # Keep draining immediately available output without waiting.
             deadline = time.monotonic()
-        return b"".join(chunks)
+        if chunks:
+            return b"".join(chunks)
+        error = getattr(self, "_pending_error", None)
+        if error:
+            self._pending_error = None
+            raise OSError(error)
+        return b""
 
     def write(self, data: bytes | str) -> None:
         if self._closed.is_set():

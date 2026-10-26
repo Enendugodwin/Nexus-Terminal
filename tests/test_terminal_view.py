@@ -7,8 +7,8 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QKeyEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
 from nexus_remote.ui.terminal import TerminalView
@@ -153,6 +153,47 @@ def test_paint_renders_without_errors(app):
     view.deleteLater()
 
 
+def _wheel(view: TerminalView, delta: int) -> None:
+    event = QWheelEvent(
+        QPointF(10, 10),
+        QPointF(10, 10),
+        QPoint(0, 0),
+        QPoint(0, delta),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    view.wheelEvent(event)
+
+
+def test_the_wheel_scrolls_up_and_back_down(app):
+    """Wheel up must go back through history; wheel down must return to the bottom."""
+
+    view = TerminalView()
+    view.resize(500, 240)
+    view.attach(FakeChannel())
+    for line in range(200):
+        view.feed(f"line {line}\r\n")
+    assert view._scroll == 0
+
+    _wheel(view, 120)  # one notch up
+    assert view._scroll == 3
+
+    _wheel(view, 120)
+    assert view._scroll == 6
+
+    _wheel(view, -120)  # one notch down
+    assert view._scroll == 3, "wheel-down must move towards the bottom again"
+
+    _wheel(view, -120)
+    assert view._scroll == 0
+
+    _wheel(view, -120)  # cannot scroll past the newest line
+    assert view._scroll == 0
+    view.deleteLater()
+
+
 def _attached_view():
     view = TerminalView()
     channel = FakeChannel()
@@ -192,6 +233,20 @@ class FailingChannel(FakeChannel):
 
     def read(self, timeout: float = 0.2, max_bytes: int = 65536) -> bytes:
         raise OSError("An existing connection was forcibly closed by the remote host")
+
+
+def test_a_local_shell_ending_says_so_instead_of_connection_closed(app):
+    view = TerminalView()
+    channel = FakeChannel()
+    view.attach(channel, session_id="local-powershell", label="PowerShell")
+    channel.closed = True
+
+    view._drain()
+
+    text = view.buffer.text()
+    assert "[shell exited]" in text
+    assert "connection closed" not in text
+    view.deleteLater()
 
 
 def test_a_read_error_closes_the_terminal_instead_of_raising(app):

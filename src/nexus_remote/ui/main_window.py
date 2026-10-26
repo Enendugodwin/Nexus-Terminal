@@ -176,6 +176,7 @@ class MainWindow(QMainWindow):
         self.devices.connect_requested.connect(self._connect)
         self.workspace.diagnostic_requested.connect(self._show_diagnostics)
         self.workspace.status_message.connect(self._set_status)
+        self.powershell.status_message.connect(self._set_status)
         self.commands.send_requested.connect(self._send_command)
         self.commands.status_message.connect(self._set_status)
         self.nav.currentRowChanged.connect(self._refresh_current)

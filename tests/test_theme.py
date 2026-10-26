@@ -82,6 +82,33 @@ def test_apply_theme_changes_the_application(app):
     theme.apply_theme(app, "matrix")
 
 
+def test_a_disabled_primary_button_looks_disabled(app):
+    """An id selector must not keep a disabled Start/Delete button lit."""
+
+    theme.apply_theme(app, "matrix")
+    sheet = app.styleSheet()
+
+    assert "QPushButton#Primary:disabled" in sheet
+    assert "QPushButton#Danger:disabled" in sheet
+
+    from PySide6.QtWidgets import QPushButton
+
+    button = QPushButton("Start")
+    button.setObjectName("Primary")
+    button.show()
+    button.setEnabled(True)
+    app.processEvents()
+    image = button.grab().toImage()
+    enabled = image.pixelColor(image.width() // 2, image.height() // 2).name()
+    button.setEnabled(False)
+    app.processEvents()
+    image = button.grab().toImage()
+    disabled = image.pixelColor(image.width() // 2, image.height() // 2).name()
+    button.deleteLater()
+
+    assert enabled != disabled, "a disabled Primary button rendered like an enabled one"
+
+
 def test_icon_resources_exist_and_load(app):
     from PySide6.QtGui import QIcon
 
